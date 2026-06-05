@@ -83,6 +83,7 @@ object VideoStorage {
             obj.put("isCommentModerated", item.isCommentModerated)
             obj.put("isHideViews", item.isHideViews)
             obj.put("status", item.status)
+            obj.put("telegramFileId", item.telegramFileId)
             jsonArray.put(obj)
         }
         sharedPrefs.edit().putString(KEY_VIDEOS, jsonArray.toString()).apply()
@@ -127,7 +128,8 @@ object VideoStorage {
                         isAutoSubtitles = obj.optBoolean("isAutoSubtitles", false),
                         isCommentModerated = obj.optBoolean("isCommentModerated", true),
                         isHideViews = obj.optBoolean("isHideViews", false),
-                        status = obj.optString("status", "PENDING")
+                        status = obj.optString("status", "PENDING"),
+                        telegramFileId = obj.optString("telegramFileId", "")
                     )
                 )
             }
@@ -1662,8 +1664,31 @@ private suspend fun sendVideoToTelegram(
             .build()
 
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                android.util.Log.e("TelegramAPI", "Error: ${response.body?.string()}")
+            if (response.isSuccessful) {
+                val responseStr = response.body?.string()
+                if (responseStr != null) {
+                    try {
+                        val jsonObj = org.json.JSONObject(responseStr)
+                        if (jsonObj.optBoolean("ok")) {
+                            val result = jsonObj.optJSONObject("result")
+                            val videoObj = result?.optJSONObject("video")
+                            val fileId = videoObj?.optString("file_id")
+                            if (!fileId.isNullOrEmpty()) {
+                                com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                    .collection("videos")
+                                    .document(docId)
+                                    .update("telegramFileId", fileId)
+                                    .addOnSuccessListener {
+                                        android.util.Log.d("TelegramAPI", "Successfully updated telegramFileId in Firestore to: $fileId")
+                                    }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("TelegramAPI", "Error parsing sendVideo response", e)
+                    }
+                }
+            } else {
+                android.util.Log.e("TelegramAPI", "Error uploading to Telegram: ${response.body?.string()}")
             }
         }
     } catch (e: Exception) {
