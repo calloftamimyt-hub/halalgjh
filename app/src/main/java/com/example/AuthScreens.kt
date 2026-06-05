@@ -1,0 +1,450 @@
+package com.example
+
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.ui.theme.*
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.UserProfileChangeRequest
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LoginScreen(
+    onBack: () -> Unit,
+    onNavigateToRegister: () -> Unit,
+    onLoginSuccess: () -> Unit
+) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val auth = FirebaseAuth.getInstance()
+    val scope = rememberCoroutineScope()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Login" else "লগইন করুন") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = BgLight)
+            )
+        },
+        containerColor = BgLight
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            Text(
+                text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Welcome Back" else "স্বাগতম",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+            
+            Text(
+                text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Sign in to your account" else "আপনার অ্যাকাউন্টে লগইন করুন",
+                fontSize = 14.sp,
+                color = TextGray,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Email Address" else "ইমেইল এড্রেস") },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextDark,
+                    unfocusedTextColor = TextDark,
+                    focusedLabelColor = PrimaryGreen,
+                    unfocusedLabelColor = TextGray,
+                    focusedBorderColor = PrimaryGreen,
+                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                    cursorColor = PrimaryGreen
+                ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = if (email.isNotEmpty()) PrimaryGreen else TextGray) }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Password" else "পাসওয়ার্ড") },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextDark,
+                    unfocusedTextColor = TextDark,
+                    focusedLabelColor = PrimaryGreen,
+                    unfocusedLabelColor = TextGray,
+                    focusedBorderColor = PrimaryGreen,
+                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                    cursorColor = PrimaryGreen
+                ),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, 
+                            null,
+                            tint = TextGray
+                        )
+                    }
+                },
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = if (password.isNotEmpty()) PrimaryGreen else TextGray) }
+            )
+
+            errorMessage?.let {
+                Text(
+                    text = it,
+                    color = Color.Red,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
+                    textAlign = TextAlign.Start
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = {
+                    if (email.isBlank() || password.isBlank()) {
+                        errorMessage = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Please fill all fields" else "সবগুলো ঘর পূরণ করুন"
+                        return@Button
+                    }
+                    isLoading = true
+                    errorMessage = null
+                    auth.signInWithEmailAndPassword(email, password)
+                        .addOnCompleteListener { task ->
+                            isLoading = false
+                            if (task.isSuccessful) {
+                                onLoginSuccess()
+                            } else {
+                                errorMessage = task.exception?.localizedMessage ?: "Login failed"
+                            }
+                        }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                } else {
+                    Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Login" else "লগইন করুন", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Don't have an account? " else "অ্যাকাউন্ট নেই? ",
+                    color = TextGray,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Register Now" else "রেজিস্ট্রেশন করুন",
+                    color = PrimaryGreen,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { onNavigateToRegister() }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RegisterScreen(
+    onBack: () -> Unit,
+    onNavigateToLogin: () -> Unit,
+    onRegisterSuccess: () -> Unit
+) {
+    var firstName by remember { mutableStateOf("") }
+    var lastName by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var mobile by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    
+    var passwordVisible by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val auth = FirebaseAuth.getInstance()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Join Halal Circle" else "হালাল সার্কেল-এ যোগ দিন") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = BgLight)
+            )
+        },
+        containerColor = BgLight
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Create Account" else "অ্যাকাউন্ট তৈরি করুন",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+            
+            Text(
+                text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Join our islamic community" else "আমাদের ইসলামিক কমিউনিটিতে যোগ দিন",
+                fontSize = 13.sp,
+                color = TextGray,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it },
+                    label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "First Name" else "নামের প্রথম অংশ") },
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextDark,
+                        unfocusedTextColor = TextDark,
+                        focusedLabelColor = PrimaryGreen,
+                        unfocusedLabelColor = TextGray,
+                        focusedBorderColor = PrimaryGreen,
+                        unfocusedBorderColor = TextGray.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it },
+                    label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Last Name" else "শেষ অংশ") },
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextDark,
+                        unfocusedTextColor = TextDark,
+                        focusedLabelColor = PrimaryGreen,
+                        unfocusedLabelColor = TextGray,
+                        focusedBorderColor = PrimaryGreen,
+                        unfocusedBorderColor = TextGray.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Email" else "ইমেইল") },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextDark,
+                    unfocusedTextColor = TextDark,
+                    focusedLabelColor = PrimaryGreen,
+                    unfocusedLabelColor = TextGray,
+                    focusedBorderColor = PrimaryGreen,
+                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(8.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = mobile,
+                onValueChange = { mobile = it },
+                label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Mobile Number" else "মোবাইল নাম্বার") },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextDark,
+                    unfocusedTextColor = TextDark,
+                    focusedLabelColor = PrimaryGreen,
+                    unfocusedLabelColor = TextGray,
+                    focusedBorderColor = PrimaryGreen,
+                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(8.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Password" else "পাসওয়ার্ড") },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextDark,
+                    unfocusedTextColor = TextDark,
+                    focusedLabelColor = PrimaryGreen,
+                    unfocusedLabelColor = TextGray,
+                    focusedBorderColor = PrimaryGreen,
+                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(8.dp),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, 
+                            null,
+                            tint = TextGray
+                        )
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = confirmPassword,
+                onValueChange = { confirmPassword = it },
+                label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Confirm Password" else "পাসওয়ার্ড নিশ্চিত করুন") },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextDark,
+                    unfocusedTextColor = TextDark,
+                    focusedLabelColor = PrimaryGreen,
+                    unfocusedLabelColor = TextGray,
+                    focusedBorderColor = PrimaryGreen,
+                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(8.dp),
+                visualTransformation = PasswordVisualTransformation()
+            )
+
+            errorMessage?.let {
+                Text(
+                    text = it,
+                    color = Color.Red,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = {
+                    if (firstName.isBlank() || lastName.isBlank() || email.isBlank() || mobile.isBlank() || password.isBlank()) {
+                        errorMessage = "Please fill all fields"
+                        return@Button
+                    }
+                    if (password != confirmPassword) {
+                        errorMessage = "Passwords do not match"
+                        return@Button
+                    }
+                    isLoading = true
+                    errorMessage = null
+                    auth.createUserWithEmailAndPassword(email, password)
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val user = task.result?.user
+                                val profileUpdates = UserProfileChangeRequest.Builder()
+                                    .setDisplayName("$firstName $lastName")
+                                    .build()
+                                
+                                user?.updateProfile(profileUpdates)
+                                    ?.addOnCompleteListener { profileTask ->
+                                        isLoading = false
+                                        if (profileTask.isSuccessful) {
+                                            onRegisterSuccess()
+                                        } else {
+                                            // Even if profile update fails, account is created
+                                            onRegisterSuccess()
+                                        }
+                                    }
+                            } else {
+                                isLoading = false
+                                errorMessage = task.exception?.localizedMessage ?: "Registration failed"
+                            }
+                        }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                } else {
+                    Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Register" else "রেজিস্ট্রেশন করুন", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Already have an account? " else "ইতিমধ্যে অ্যাকাউন্ট আছে? ",
+                    color = TextGray,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Login Here" else "লগইন করুন",
+                    color = PrimaryGreen,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { onNavigateToLogin() }
+                )
+            }
+        }
+    }
+}

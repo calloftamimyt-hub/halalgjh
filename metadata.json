@@ -1,0 +1,8 @@
+{
+  "name": "Halal Circle",
+  "description": "A comprehensive Islamic companion app featuring prayer times, Quran, Halal video reels, and social media blocking to help you focus on your Deen.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
