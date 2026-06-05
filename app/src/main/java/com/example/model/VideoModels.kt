@@ -6,11 +6,11 @@ import android.net.Uri
 data class UserUploadedVideo(
     val docId: String = "",
     val userId: String = "",
-    val title: String,
-    val author: String,
-    val description: String,
-    val videoUri: String,
-    val timestamp: Long,
+    val title: String = "Untitled",
+    val author: String = "Unknown Author",
+    val description: String = "",
+    val videoUri: String = "",
+    val timestamp: Long = 0L,
     val isLocal: Boolean = true,
     val aspectSize: String = "৯:১৬",
     val category: String = "বয়ান (Bayan)",
@@ -21,5 +21,5 @@ data class UserUploadedVideo(
     val status: String = "PENDING" // PENDING, APPROVED, REJECTED
 ) {
     // Empty constructor for Firestore
-    constructor() : this("", "", "", "", "", "", 0L)
+    constructor() : this("", "", "Untitled", "Unknown Author", "", "", 0L)
 }

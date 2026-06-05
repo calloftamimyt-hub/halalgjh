@@ -90,8 +90,12 @@ fun VideoScreen() {
                     if (snapshots != null) {
                         userVideosList.clear()
                         for (doc in snapshots) {
-                            val video = doc.toObject(UserUploadedVideo::class.java)
-                            userVideosList.add(video)
+                            try {
+                                val video = doc.toObject(UserUploadedVideo::class.java)
+                                userVideosList.add(video)
+                            } catch (e: Exception) {
+                                android.util.Log.e("Firebase", "Error parsing doc: ${doc.id}", e)
+                            }
                         }
                     }
                 }
@@ -124,7 +128,10 @@ fun VideoScreen() {
                 docId = uv.docId,
                 userId = uv.userId
             )
-        }.filter { it.status == "APPROVED" } // Show approved only
+        }.filter { 
+            it.status.trim().equals("APPROVED", ignoreCase = true) || 
+            (it.userId == currentUserId && it.status.trim().equals("PENDING", ignoreCase = true))
+        } // Show approved for everyone, pending for owner
 
         val total = mapped
         if (selectedCategory == "সবগুলো" || selectedCategory == "All") total 
