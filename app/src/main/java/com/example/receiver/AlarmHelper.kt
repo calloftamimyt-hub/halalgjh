@@ -11,8 +11,10 @@ import java.util.Calendar
 object AlarmHelper {
 
     fun scheduleNextPrayer(context: Context, lat: Double, lng: Double, timezoneOffsetHor: Double, alarms: Map<String, Boolean>? = null) {
+        saveState(context, lat, lng, timezoneOffsetHor, alarms)
+        val madhab = context.getSharedPreferences("prayer_prefs", Context.MODE_PRIVATE).getInt("madhab", 2)
         val calendar = Calendar.getInstance()
-        val times = PrayerCalculator.calculatePrayerTimes(lat, lng, timezoneOffsetHor, calendar)
+        val times = PrayerCalculator.calculatePrayerTimes(lat, lng, timezoneOffsetHor, madhab, calendar)
 
         // Find the next prayer
         val currentHourDecimal = calendar.get(Calendar.HOUR_OF_DAY) + calendar.get(Calendar.MINUTE) / 60.0
@@ -48,9 +50,10 @@ object AlarmHelper {
 
         // If no prayer is found today, the next prayer is the first active prayer tomorrow
         if (nextPrayerTime == -1.0) {
+            val madhab = context.getSharedPreferences("prayer_prefs", Context.MODE_PRIVATE).getInt("madhab", 2)
             val tomorrow = Calendar.getInstance()
             tomorrow.add(Calendar.DAY_OF_YEAR, 1)
-            val tomorrowTimes = PrayerCalculator.calculatePrayerTimes(lat, lng, timezoneOffsetHor, tomorrow)
+            val tomorrowTimes = PrayerCalculator.calculatePrayerTimes(lat, lng, timezoneOffsetHor, madhab, tomorrow)
             val tomorrowAllPrayers = listOf(
                 Pair("Fajr", tomorrowTimes.fajrHours),
                 Pair("Sunrise", tomorrowTimes.sunriseHours),
@@ -66,6 +69,9 @@ object AlarmHelper {
         }
 
         scheduleAlarm(context, nextPrayerName, nextPrayerTime, isTomorrow)
+        
+        // Also schedule silent mode alarms
+        SilentModeHelper.scheduleSilentAlarms(context, lat, lng, timezoneOffsetHor, madhab)
     }
 
     private fun cancelAlarm(context: Context) {
@@ -115,13 +121,38 @@ object AlarmHelper {
                 pendingIntent
             )
         } catch (e: SecurityException) {
-            // Android 14+ requires SCHEDULE_EXACT_ALARM permission
-            // Provide fallback if permission is missing
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
                 calendar.timeInMillis,
                 pendingIntent
             )
         }
+    }
+
+    private fun saveState(context: Context, lat: Double, lng: Double, offset: Double, alarms: Map<String, Boolean>?) {
+        val prefs = context.getSharedPreferences("prayer_alarm_prefs", Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putFloat("lat", lat.toFloat())
+            putFloat("lng", lng.toFloat())
+            putFloat("offset", offset.toFloat())
+            alarms?.forEach { (name, enabled) ->
+                putBoolean("alarm_$name", enabled)
+            }
+            apply()
+        }
+    }
+
+    fun reschedule(context: Context) {
+        val prefs = context.getSharedPreferences("prayer_alarm_prefs", Context.MODE_PRIVATE)
+        val lat = prefs.getFloat("lat", 23.8103f).toDouble()
+        val lng = prefs.getFloat("lng", 90.4125f).toDouble()
+        val offset = prefs.getFloat("offset", 6.0f).toDouble()
+        
+        val alarms = mutableMapOf<String, Boolean>()
+        listOf("Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha").forEach { name ->
+            alarms[name] = prefs.getBoolean("alarm_$name", name != "Sunrise")
+        }
+        
+        scheduleNextPrayer(context, lat, lng, offset, alarms)
     }
 }

@@ -41,6 +41,7 @@ fun SocialMediaBlockerScreen(
 
     var showTermsAndPrivacyFullScreen by remember { mutableStateOf(false) }
     var showPermissionDialog by remember { mutableStateOf(false) }
+    var showRestrictedHelp by remember { mutableStateOf(false) }
 
     // YouTube states
     var isYtLongBlocked by remember { mutableStateOf(sharedPrefs.getBoolean("yt_long_blocked", false)) }
@@ -707,6 +708,35 @@ fun SocialMediaBlockerScreen(
         }
     }
 
+    // Restricted Settings Help Dialog
+    if (showRestrictedHelp) {
+        AlertDialog(
+            onDismissRequest = { showRestrictedHelp = false },
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text("কিভাবে Restricted Setting ঠিক করবেন?", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("অ্যান্ড্রয়েড ১৩+ ভার্সনে নিরাপত্তার কারণে বাইরের অ্যাপে সরাসরি পারমিশন দেওয়া যায় না। এটি ঠিক করতে:", fontSize = 14.sp)
+                    Text("১. আপনার ফোনের Settings > Apps-এ যান।", fontSize = 14.sp)
+                    Text("২. 'Halal Circle' অ্যাপটি খুঁজে বের করুন।", fontSize = 14.sp)
+                    Text("৩. উপরের ডানদিকের তিনটি ডট (⋮) মেনুতে ক্লিক করুন।", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("৪. 'Allow restricted settings' এ ক্লিক করুন।", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen)
+                    Text("৫. এখন ফিরে এসে আবার পারমিশনটি দিন।", fontSize = 14.sp)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showRestrictedHelp = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                ) {
+                    Text("বুঝেছি", color = Color.White)
+                }
+            }
+        )
+    }
+
     // Modal Details info Alert Dialog
     infoDialogTitle?.let { title ->
         AlertDialog(
@@ -796,6 +826,20 @@ fun SocialMediaBlockerScreen(
                         color = TextGray,
                         lineHeight = 18.sp
                     )
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    TextButton(
+                        onClick = { showRestrictedHelp = true },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.HelpOutline, contentDescription = null, modifier = Modifier.size(16.dp), tint = PrimaryGreen)
+                            Spacer(Modifier.width(4.dp))
+                            Text("'Restricted Setting' সমস্যা হচ্ছে?", color = PrimaryGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             },
             confirmButton = {

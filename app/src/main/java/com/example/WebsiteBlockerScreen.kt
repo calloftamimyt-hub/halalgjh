@@ -57,6 +57,7 @@ fun WebsiteBlockerScreen(
 
     // Permission dialog state
     var showPermissionSettingsDialog by remember { mutableStateOf(false) }
+    var showRestrictedHelp by remember { mutableStateOf(false) }
 
     // Intercept back actions
     BackHandler(onBack = onBack)
@@ -546,6 +547,20 @@ fun WebsiteBlockerScreen(
                         color = Color(0xFF94A3B8),
                         lineHeight = 18.sp
                     )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    TextButton(
+                        onClick = { showRestrictedHelp = true },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.HelpOutline, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF10B981))
+                            Spacer(Modifier.width(4.dp))
+                            Text("'Restricted Setting' সমস্যা হচ্ছে?", color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -582,6 +597,35 @@ fun WebsiteBlockerScreen(
                     }
                 ) {
                     Text("ব্যাটারি সেটআপ", color = Color(0xFF64748B), fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                }
+            }
+        )
+    }
+
+    // Restricted Settings Help Dialog
+    if (showRestrictedHelp) {
+        AlertDialog(
+            onDismissRequest = { showRestrictedHelp = false },
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text("কিভাবে Restricted Setting ঠিক করবেন?", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("অ্যান্ড্রয়েড ১৩+ ভার্সনে নিরাপত্তার কারণে বাইরের অ্যাপে সরাসরি পারমিশন দেওয়া যায় না। এটি ঠিক করতে:", fontSize = 14.sp)
+                    Text("১. আপনার ফোনের Settings > Apps-এ যান।", fontSize = 14.sp)
+                    Text("২. 'Halal Circle' অ্যাপটি খুঁজে বের করুন।", fontSize = 14.sp)
+                    Text("৩. উপরের ডানদিকের তিনটি ডট (⋮) মেনুতে ক্লিক করুন।", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("৪. 'Allow restricted settings' এ ক্লিক করুন।", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+                    Text("৫. এখন ফিরে এসে আবার পারমিশনটি দিন।", fontSize = 14.sp)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showRestrictedHelp = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text("বুঝেছি", color = Color.White)
                 }
             }
         )

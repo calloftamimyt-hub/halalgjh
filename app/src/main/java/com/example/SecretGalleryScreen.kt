@@ -926,8 +926,17 @@ fun SecretGalleryDashboard(
     }
 
     // Modern android system gallery picker launcher
+    val deleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            isReloading = true
+            Toast.makeText(context, "মূল গ্যালারি থেকে ফটোটি সরানো হয়েছে!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val imageSelectionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
 
@@ -949,7 +958,21 @@ fun SecretGalleryDashboard(
                 
                 // Refresh list
                 isReloading = true
-                Toast.makeText(context, "ফটোটি সফলভাবে গোপন গ্যালারিতে সুরক্ষিত করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "ফটোটি গোপন গ্যালারিতে সুরক্ষিত করা হয়েছে!", Toast.LENGTH_SHORT).show()
+
+                // "Hide from Gallery" logic: Ask user to delete the original file
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
+                    deleteLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+                } else {
+                    // For older versions, direct deletion often fails for remote URIs without MANAGE_EXTERNAL_STORAGE,
+                    // but we can try basic content resolver delete if it's a MediaStore URI
+                    try {
+                        contentResolver.delete(uri, null, null)
+                    } catch (e: Exception) {
+                        // Fail silently or notify user if they want to manually delete
+                    }
+                }
             }
         } catch (e: Exception) {
             Toast.makeText(context, "ফাইল সুরক্ষিত করতে ত্রুটি পাওয়া গেছেঃ ${e.message}", Toast.LENGTH_LONG).show()
@@ -1091,7 +1114,11 @@ fun SecretGalleryDashboard(
                 // Plus action icon to hide photos
                 IconButton(
                     onClick = {
-                        imageSelectionLauncher.launch("image/*")
+                        imageSelectionLauncher.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
                     },
                     modifier = Modifier
                         .size(36.dp)
@@ -1262,7 +1289,13 @@ fun SecretGalleryDashboard(
                         )
 
                         Button(
-                            onClick = { imageSelectionLauncher.launch("image/*") },
+                            onClick = {
+                                imageSelectionLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.padding(top = 8.dp)

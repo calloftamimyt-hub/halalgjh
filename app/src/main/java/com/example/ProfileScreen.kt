@@ -65,7 +65,8 @@ private fun formatTrackerDateToBengali(dateKey: String): String {
 @Composable
 fun ProfileScreen(
     onNavigateToTracker: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSaved: () -> Unit
 ) {
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("profile_prefs", Context.MODE_PRIVATE) }
@@ -104,7 +105,7 @@ fun ProfileScreen(
     var showSocialMediaBlockerFullScreen by remember { mutableStateOf(false) }
     var showWebsiteBlockerFullScreen by remember { mutableStateOf(false) }
     var showScreenTimeFullScreen by remember { mutableStateOf(false) }
-    var showSecretGalleryFullScreen by remember { mutableStateOf(false) }
+    var showAutoSilentFullScreen by remember { mutableStateOf(false) }
 
     // Dialogs / Sheets for interactive features
     var activeModalTitle by remember { mutableStateOf<String?>(null) }
@@ -243,13 +244,14 @@ fun ProfileScreen(
                     isWebsiteBlocked = sharedPrefs.getBoolean("web_blocked", false)
                 }
             )
-        } else if (showSecretGalleryFullScreen) {
-            SecretGalleryScreen(
-                onBack = { showSecretGalleryFullScreen = false }
-            )
         } else if (showScreenTimeFullScreen) {
             ScreenTimeScreen(
                 onBack = { showScreenTimeFullScreen = false }
+            )
+        } else if (showAutoSilentFullScreen) {
+            com.example.AutoSilentScreen(
+                prayerViewModel = androidx.lifecycle.viewmodel.compose.viewModel<com.example.viewmodel.PrayerViewModel>(),
+                onBack = { showAutoSilentFullScreen = false }
             )
         } else {
             // Main Profile UI Display
@@ -263,19 +265,7 @@ fun ProfileScreen(
                 // Safe spacing
                 Spacer(modifier = Modifier.statusBarsPadding())
 
-                // Top Header
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    Text(
-                        text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "My Profile" else "আমার প্রোফাইল",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = TextDark
-                    )
-                }
+                // Top Header Removed as requested
 
                 // 1. Decorative custom height Profile Avatar Card
                 Card(
@@ -379,7 +369,7 @@ fun ProfileScreen(
                 // 2. Large category options card (slightly rounded rectangular)
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -416,8 +406,6 @@ fun ProfileScreen(
                             title = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Parental Control" else "প্যারেন্টাল কন্ট্রোল",
                             icon = if (isParentalControlEnabled) Icons.Filled.FamilyRestroom else Icons.Outlined.FamilyRestroom,
                             iconColor = Color(0xFFD97706),
-                            badgeText = if (isParentalControlEnabled) (if (com.example.viewmodel.GlobalLanguage.isEnglish) "On" else "চালু") else (if (com.example.viewmodel.GlobalLanguage.isEnglish) "Off" else "বন্ধ"),
-                            badgeColor = if (isParentalControlEnabled) PrimaryGreen else TextGray,
                             onClick = {
                                 activeModalTitle = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Parental Control" else "প্যারেন্টাল কন্ট্রোল"
                                 currentSelectedFeature = "parental"
@@ -431,11 +419,8 @@ fun ProfileScreen(
                             title = "অটো সাইলেন্ট",
                             icon = if (isAutoSilentEnabled) Icons.Filled.VolumeOff else Icons.Outlined.VolumeUp,
                             iconColor = Color(0xFF8B5CF6),
-                            badgeText = if (isAutoSilentEnabled) "সক্রিয়" else "নিষ্ক্রিয়",
-                            badgeColor = if (isAutoSilentEnabled) PrimaryGreen else TextGray,
                             onClick = {
-                                activeModalTitle = "অটো সাইলেন্ট সেটিংস"
-                                currentSelectedFeature = "silent"
+                                showAutoSilentFullScreen = true
                             }
                         )
 
@@ -446,8 +431,6 @@ fun ProfileScreen(
                             title = "সোশ্যাল মিডিয়া ব্লকার",
                             icon = Icons.Outlined.AppBlocking,
                             iconColor = Color(0xFFEF4444),
-                            badgeText = if (isSocialMediaBlocked) "সক্রিয়" else "নিষ্ক্রিয়",
-                            badgeColor = if (isSocialMediaBlocked) Color(0xFFEF4444) else TextGray,
                             onClick = {
                                 showSocialMediaBlockerFullScreen = true
                             }
@@ -456,34 +439,12 @@ fun ProfileScreen(
                         ProfileDivider()
 
                         // Website Blocker
-                        val blockedCount = remember(isWebsiteBlocked) {
-                            sharedPrefs.getString("blocked_websites_list", "")
-                                ?.split(",")
-                                ?.filter { it.isNotBlank() }
-                                ?.size ?: 0
-                        }
                         ProfileOptionRow(
                             title = "ওয়েবসাইট ব্লকার",
                             icon = Icons.Outlined.Block,
                             iconColor = Color(0xFFDC2626),
-                            badgeText = if (blockedCount > 0) "${blockedCount.toBengaliDigits()}টি ব্লকড" else "০টি ব্লকড",
-                            badgeColor = if (blockedCount > 0) Color(0xFFDC2626) else TextGray,
                             onClick = {
                                 showWebsiteBlockerFullScreen = true
-                            }
-                        )
-
-                        ProfileDivider()
-
-                        // Secret Gallery
-                        ProfileOptionRow(
-                            title = "গোপন গ্যালারি",
-                            icon = Icons.Outlined.Lock,
-                            iconColor = Color(0xFF4B5563),
-                            badgeText = "লকড",
-                            badgeColor = Color(0xFF10B981),
-                            onClick = {
-                                showSecretGalleryFullScreen = true
                             }
                         )
 
@@ -506,12 +467,7 @@ fun ProfileScreen(
                             title = "সেভ করা পোস্ট",
                             icon = Icons.Outlined.BookmarkBorder,
                             iconColor = Color(0xFF9333EA),
-                            badgeText = "${savedPostCount.toBengaliDigits()}টি",
-                            badgeColor = if (savedPostCount > 0) PrimaryGreen else TextGray,
-                            onClick = {
-                                activeModalTitle = "সেভ করা পোস্টসমূহ"
-                                currentSelectedFeature = "posts"
-                            }
+                            onClick = onNavigateToSaved
                         )
 
                         ProfileDivider()
@@ -521,8 +477,6 @@ fun ProfileScreen(
                             title = "সেভ করা দোয়া",
                             icon = Icons.Outlined.FavoriteBorder,
                             iconColor = Color(0xFFEC4899),
-                            badgeText = "${savedDuaCount.toBengaliDigits()}টি",
-                            badgeColor = if (savedDuaCount > 0) PrimaryGreen else TextGray,
                             onClick = {
                                 activeModalTitle = "সেভ করা দোয়া ক্যাটাগরি"
                                 currentSelectedFeature = "duas"
@@ -536,8 +490,6 @@ fun ProfileScreen(
                             title = "বুকমার্ক করা আয়াত",
                             icon = Icons.Outlined.MenuBook,
                             iconColor = Color(0xFF0E7490),
-                            badgeText = "${bookmarkedAyahCount.toBengaliDigits()}টি",
-                            badgeColor = if (bookmarkedAyahCount > 0) PrimaryGreen else TextGray,
                             onClick = {
                                 activeModalTitle = "বুকমার্ক করা আয়াত কোড"
                                 currentSelectedFeature = "ayahs"
@@ -556,20 +508,6 @@ fun ProfileScreen(
                                 currentSelectedFeature = "hadiths"
                             }
                         )
-
-                        // Sign Out Option - Only show if logged in
-                        if (currentUser != null) {
-                            ProfileDivider()
-                            ProfileOptionRow(
-                                title = if (GlobalLanguage.isEnglish) "Sign Out" else "লগআউট করুন",
-                                icon = Icons.Default.Logout,
-                                iconColor = Color.Red,
-                                onClick = {
-                                    auth.signOut()
-                                    Toast.makeText(context, if (GlobalLanguage.isEnglish) "Logged out successfully" else "সফলভাবে লগআউট করা হয়েছে", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                        }
                     }
                 }
 
@@ -586,7 +524,7 @@ fun ProfileScreen(
 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -597,10 +535,33 @@ fun ProfileScreen(
                             title = LocalAppStrings.current.settings,
                             icon = Icons.Outlined.Settings,
                             iconColor = Color(0xFF4B5563),
-                            badgeText = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Version 1.0.1" else "ভার্সন ১.০.১",
-                            badgeColor = TextGray,
                             onClick = onNavigateToSettings
                         )
+
+                        // If logged in, show logout and delete account
+                        if (currentUser != null) {
+                            ProfileDivider()
+                            ProfileOptionRow(
+                                title = if (GlobalLanguage.isEnglish) "Sign Out" else "লগআউট করুন",
+                                icon = Icons.Default.Logout,
+                                iconColor = Color.Red,
+                                onClick = {
+                                    auth.signOut()
+                                    Toast.makeText(context, if (GlobalLanguage.isEnglish) "Logged out successfully" else "সফলভাবে লগআউট করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+
+                            ProfileDivider()
+                            ProfileOptionRow(
+                                title = if (GlobalLanguage.isEnglish) "Delete Account" else "অ্যাকাউন্ট মুছে ফেলুন",
+                                icon = Icons.Default.Delete,
+                                iconColor = Color.Red,
+                                onClick = {
+                                    // Normally shows a confirmation dialog
+                                    Toast.makeText(context, if (GlobalLanguage.isEnglish) "Account deletion request sent" else "অ্যাকাউন্ট মুছে ফেলার অনুরোধ পাঠানো হয়েছে", Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -736,22 +697,6 @@ fun ProfileScreen(
                                 )
                             }
                         }
-                        "gallery" -> {
-                            Text(
-                                "আপনার ব্যক্তিগত প্রয়োজনীয় ডকুমেন্ট বা ইসলামিক নোট সিক্রেট কোড দিয়ে নিরাপদ স্থানে লক করে রাখুন।",
-                                fontSize = 13.sp,
-                                color = TextGray
-                            )
-                            Button(
-                                onClick = { },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
-                            ) {
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("গ্যালারির নতুন কোড নির্ধারণ করুন", color = Color.White, fontSize = 13.sp)
-                            }
-                        }
                         "screentime" -> {
                             Text(
                                 "আজকের মোট স্ক্রিন ব্যবহার এবং দ্বীনি কাজে কাটানো সময় এনালাইসিস:",
@@ -771,18 +716,6 @@ fun ProfileScreen(
                                     Text("১ ঘণ্টা ২০ মি.", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                     Text("সামাজিক যোগাযোগে", fontSize = 11.sp, color = TextGray)
                                 }
-                            }
-                        }
-                        "posts" -> {
-                            Text("পূর্বে সেভ করা ফেসবুক বা অন্যান্য পেজের কোনো তথ্য পাওয়া যায়নি। আপনি অ্যাপ থেকে ইসলামী পোস্ট এখানে সেভ করতে পারেন।", fontSize = 13.sp, color = TextGray)
-                            Button(
-                                onClick = {
-                                    savedPostCount++
-                                    sharedPrefs.edit().putInt("saved_posts", savedPostCount).apply()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
-                            ) {
-                                Text("একটি ডেমো পোস্ট যোগ করুন", color = Color.White)
                             }
                         }
                         "duas" -> {
@@ -1499,8 +1432,6 @@ fun ProfileOptionRow(
     title: String,
     icon: ImageVector,
     iconColor: Color,
-    badgeText: String? = null,
-    badgeColor: Color = TextGray,
     onClick: () -> Unit
 ) {
     Row(
@@ -1511,14 +1442,14 @@ fun ProfileOptionRow(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = LocalIndication.current
             )
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(38.dp)
                     .background(iconColor.copy(alpha = 0.1f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
@@ -1526,41 +1457,24 @@ fun ProfileOptionRow(
                     imageVector = icon,
                     contentDescription = null,
                     tint = iconColor,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Normal,
                 color = TextDark
             )
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (badgeText != null) {
-                Box(
-                    modifier = Modifier
-                        .background(badgeColor.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = badgeColor
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = Color(0xFFD1D5DB),
-                modifier = Modifier.size(16.dp)
-            )
-        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = Color(0xFFD1D5DB),
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 

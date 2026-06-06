@@ -19,6 +19,8 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -990,7 +992,7 @@ fun VideoEditingView(
  */
 @Composable
 fun VideoUploadView(
-    videoUri: Uri?,
+    videoUri: android.net.Uri?,
     aspectSize: String,
     onUploadClicked: (title: String, hashtags: List<String>, features: Map<String, Any>) -> Unit,
     onBack: () -> Unit
@@ -1005,6 +1007,10 @@ fun VideoUploadView(
     var hashtagInput by remember { mutableStateOf("") }
     val hashtagsList = remember { mutableStateListOf<String>() }
 
+    // Dialog triggering states
+    var showCategoryPage by remember { mutableStateOf(false) }
+    var showHashtagsDialog by remember { mutableStateOf(false) }
+
     // Features states (10-12 key features defined to fulfill 10-12 guidelines)
     var isOfflineMode by remember { mutableStateOf(false) } // feature 1
     var isHdQuality by remember { mutableStateOf(true) }     // feature 2
@@ -1014,7 +1020,7 @@ fun VideoUploadView(
     var thumbnailFrameSelected by remember { mutableStateOf(1) } // feature 6
     var isCopyrightShieldOn by remember { mutableStateOf(true) } // feature 7
     var isCommentModerationOn by remember { mutableStateOf(true) } // feature 8
-    var deenCategory by remember { mutableStateOf("বয়ান (Bayan)") } // feature 9
+    var deenCategory by remember { mutableStateOf("Bayan") } // feature 9
     var isHideViewsCount by remember { mutableStateOf(false) } // feature 10
     var isDataSaverOn by remember { mutableStateOf(false) } // feature 11
     var isVerticalHeightFit by remember { mutableStateOf(true) } // feature 12
@@ -1023,505 +1029,469 @@ fun VideoUploadView(
     var showUploadingProgressDialog by remember { mutableStateOf(false) }
     var uploadProgressValue by remember { mutableStateOf(0.0f) }
 
-    val categoryOptions = listOf("বয়ান (Bayan)", "তিলাওয়াত (Recitation)", "নাশিদ (Nasheed)", "শিক্ষা (Education)", "হাদিস (Hadith)")
+    val categoryOptions = listOf("Bayan", "Recitation", "Nasheed", "Education", "Hadith")
 
     Scaffold(
         topBar = {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color.White)
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
                     .statusBarsPadding()
-                    .border(width = 0.5.dp, color = Color(0xFFE2E8F0))
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = onBack,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFFF1F5F9), CircleShape)
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "পিছনে", tint = Color(0xFF0F172A))
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack, 
+                            contentDescription = "পিছনে", 
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                     Text(
-                        text = "নতুন ভিডিও ডিটেইলস",
-                        color = Color(0xFF0F172A),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "Reel Settings",
+                        color = Color.Black,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.width(36.dp))
+                    Spacer(modifier = Modifier.width(40.dp)) // Centering structural spacer
                 }
+                Divider(color = Color(0xFFE5E7EB), thickness = 0.5.dp)
             }
         },
-        containerColor = Color(0xFFF8FAFC)
+        containerColor = Color.White
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Upload button placed at the right side of the inner scrollable area
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(
-                    onClick = {
-                        if (titleInput.trim().isEmpty()) {
-                            Toast.makeText(context, "দয়া করে ভিডিওর একটি শিরোনাম লিখুন!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            showUploadingProgressDialog = true
-                            uploadProgressValue = 0f
-                            scope.launch {
-                                while (uploadProgressValue < 1.0f) {
-                                    delay(120)
-                                    uploadProgressValue += 0.08f
-                                }
-                                showUploadingProgressDialog = false
-                                
-                                onUploadClicked(
-                                    titleInput,
-                                    hashtagsList.toList(),
-                                    mapOf(
-                                        "category" to deenCategory,
-                                        "offlineMode" to isOfflineMode,
-                                        "autoSubtitles" to isAutoSubtitles,
-                                        "commentModeration" to isCommentModerationOn,
-                                        "hideViews" to isHideViewsCount
-                                    )
-                                )
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Upload Video",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Video preview thumbnail bar + Title inputs
-            Row(
+            // Main content containing the options
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(16.dp))
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
             ) {
-                // Large Video thumbnail mockup with crop aspect indicator
-                Box(
+                // Top horizontal upload media thumbnail preview & text info segment
+                Row(
                     modifier = Modifier
-                        .size(100.dp, 120.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "প্রিভিউ",
-                        tint = Color.White.copy(alpha = 0.72f),
-                        modifier = Modifier.size(36.dp)
-                    )
+                    // Left element: Rounded video thumbnail with cover photo tag
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(vertical = 2.dp)
+                            .width(96.dp)
+                            .height(144.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1E293B))
+                            .clickable {
+                                thumbnailFrameSelected = if (thumbnailFrameSelected >= 3) 1 else thumbnailFrameSelected + 1
+                                Toast.makeText(context, "থাম্বনেইল কভার ফ্রেম পরিবর্তনঃ $thumbnailFrameSelected", Toast.LENGTH_SHORT).show()
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = aspectSize.substringBefore(" "),
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = "থাম্বনেইল নির্বাচন",
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(28.dp)
                         )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.61f))
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "Cover Frame $thumbnailFrameSelected",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    // Right element: Basic description textbox with character limits
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = titleInput,
+                            onValueChange = {
+                                if (it.length <= 26) {
+                                    titleInput = it
+                                }
+                            },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = Color(0xFF1C1E21),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            decorationBox = { innerTextField ->
+                                Box(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    if (titleInput.isEmpty()) {
+                                        Text(
+                                            text = "Describe your reel. You can also add hashtags here...",
+                                            color = Color(0xFF8D949E),
+                                            fontSize = 15.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 80.dp)
+                        )
+
+                        // Direct fast hashtag/mention trigger buttons under description, exactly like screenshot
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                text = "# Hashtag",
+                                color = Color(0xFF1877F2),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clickable {
+                                        showHashtagsDialog = true
+                                    }
+                                    .padding(vertical = 4.dp)
+                            )
+                            Text(
+                                text = "@ Mention",
+                                color = Color(0xFF1877F2),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clickable {
+                                        Toast.makeText(context, "মেনশন ফিচারটি শীগ্রই যুক্ত হচ্ছে!", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .padding(vertical = 4.dp)
+                            )
+                        }
+
+                        // Character limiter indicator matching modern slate font styles
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text(
+                                text = "${titleInput.length.toString().toBengali()} / ২৬ অক্ষর কাস্টম",
+                                fontSize = 11.sp,
+                                color = if (titleInput.length >= 26) Color.Red else Color(0xFF8D949E),
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
                     }
                 }
 
-                // Core Video Inputs (Title maximum length 26 characters limitation)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "ভিডিওর শিরোনাম (Title - Max 26 chars)*",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF475569)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    
-                    OutlinedTextField(
-                        value = titleInput,
-                        onValueChange = {
-                            if (it.length <= 26) {
-                                titleInput = it
-                            }
-                        },
-                        placeholder = { Text(text = "ছোট দ্বীনী শিরোনাম...", fontSize = 13.sp, color = Color(0xFF94A3B8)) },
-                        shape = RoundedCornerShape(10.dp),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            unfocusedBorderColor = Color(0xFFCBD5E1),
-                            focusedContainerColor = Color.White,
-                            unfocusedContainerColor = Color.White
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // character counter limit displaying 26 chars
-                    Row(
+                // Inline Flow Row display of user-added Hashtag tags
+                if (hashtagsList.isNotEmpty()) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.End
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        androidx.compose.foundation.layout.FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            hashtagsList.forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFFE7F3FF), RoundedCornerShape(16.dp))
+                                        .clickable { hashtagsList.remove(tag) }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(text = tag, color = Color(0xFF1877F2), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Icon(Icons.Default.Cancel, contentDescription = "বাতিল", tint = Color(0xFF1877F2), modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                }
+
+                Divider(color = Color(0xFFE5E7EB), thickness = 0.5.dp)
+
+                // Reel Settings Option Row blocks similar to Facebook Settings rows
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    
+                    // 1. Selector row for Islamic Deen categorization
+                    ReelSettingRow(
+                        icon = Icons.Default.Category,
+                        title = "Deen Category",
+                        subtitle = deenCategory,
+                        onClick = { showCategoryPage = true },
+                        action = {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = Color(0xFF8D949E)
+                            )
+                        }
+                    )
+
+                    // 2. Custom Hashtags control row
+                    ReelSettingRow(
+                        icon = Icons.Default.Tag,
+                        title = "Add Hashtags",
+                        subtitle = if (hashtagsList.isEmpty()) "Add up to 5 custom tags" else hashtagsList.joinToString(" "),
+                        onClick = { showHashtagsDialog = true },
+                        action = {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = Color(0xFF8D949E)
+                            )
+                        }
+                    )
+
+                    // 3. Cover configuration row
+                    ReelSettingRow(
+                        icon = Icons.Default.Photo,
+                        title = "Cover Thumbnail Frame",
+                        subtitle = "Selected Frame: $thumbnailFrameSelected",
+                        onClick = {
+                            thumbnailFrameSelected = if (thumbnailFrameSelected >= 3) 1 else thumbnailFrameSelected + 1
+                            Toast.makeText(context, "Thumbnail frame changed: $thumbnailFrameSelected", Toast.LENGTH_SHORT).show()
+                        },
+                        action = {
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFF1877F2).copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(text = "$thumbnailFrameSelected / 3", color = Color(0xFF1877F2), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    )
+
+                    // 4. Offline Access switch
+                    ReelSettingRow(
+                        icon = Icons.Default.Download,
+                        title = "Offline Access Caching",
+                        subtitle = null,
+                        onClick = { isOfflineMode = !isOfflineMode },
+                        action = {
+                            Switch(
+                                checked = isOfflineMode,
+                                onCheckedChange = { isOfflineMode = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF1877F2),
+                                    uncheckedThumbColor = Color(0xFFFFFFFF),
+                                    uncheckedTrackColor = Color(0xFFE4E6EB)
+                                )
+                            )
+                        }
+                    )
+
+                    // 5. Post Schedule control
+                    ReelSettingRow(
+                        icon = Icons.Default.Schedule,
+                        title = "Schedule Post",
+                        subtitle = "Choose date and time for publishing",
+                        onClick = { /* Implement scheduling logic */ },
+                        action = {
+                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null)
+                        }
+                    )
+                    
+                    // 6. AB Testing control
+                    ReelSettingRow(
+                        icon = Icons.Default.Science,
+                        title = "A/B Testing",
+                        subtitle = "Test different titles or thumbnails",
+                        onClick = { /* Implement AB testing logic */ },
+                        action = {
+                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = null)
+                        }
+                    )
+
+                    // 7. Hide View Count switch
+                    ReelSettingRow(
+                        icon = Icons.Default.VisibilityOff,
+                        title = "Hide View Count",
+                        subtitle = null,
+                        onClick = { isHideViewsCount = !isHideViewsCount },
+                        action = {
+                            Switch(
+                                checked = isHideViewsCount,
+                                onCheckedChange = { isHideViewsCount = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF1877F2),
+                                    uncheckedThumbColor = Color(0xFFFFFFFF),
+                                    uncheckedTrackColor = Color(0xFFE4E6EB)
+                                )
+                            )
+                        }
+                    )
+
+                    // 8. Bandwidth Data Saver switch
+                    ReelSettingRow(
+                        icon = Icons.Default.DataUsage,
+                        title = "Bandwidth Data Saver",
+                        subtitle = null,
+                        onClick = { isDataSaverOn = !isDataSaverOn },
+                        action = {
+                            Switch(
+                                checked = isDataSaverOn,
+                                onCheckedChange = { isDataSaverOn = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF1877F2),
+                                    uncheckedThumbColor = Color(0xFFFFFFFF),
+                                    uncheckedTrackColor = Color(0xFFE4E6EB)
+                                )
+                            )
+                        }
+                    )
+
+                    // 9. Ultra Portrait Height Fit switch
+                    ReelSettingRow(
+                        icon = Icons.Default.CropFree,
+                        title = "Ultra Portrait Height Fit",
+                        subtitle = null,
+                        onClick = { isVerticalHeightFit = !isVerticalHeightFit },
+                        action = {
+                            Switch(
+                                checked = isVerticalHeightFit,
+                                onCheckedChange = { isVerticalHeightFit = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF1877F2),
+                                    uncheckedThumbColor = Color(0xFFFFFFFF),
+                                    uncheckedTrackColor = Color(0xFFE4E6EB)
+                                )
+                            )
+                        }
+                    )
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
+
+            if (showCategoryPage) {
+                CategorySelectionScreen(
+                    currentCategory = deenCategory,
+                    onCategorySelected = { 
+                        deenCategory = it
+                        showCategoryPage = false 
+                    },
+                    onBack = { showCategoryPage = false }
+                )
+            }
+
+            // Bottom bar holding the draft Icon Button on the left, and spacious "Share now" blue button on the right
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White)
+            ) {
+                Divider(color = Color(0xFFE5E7EB), thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left element: Save / Bookmark Draft square button
+                    IconButton(
+                        onClick = {
+                            Toast.makeText(context, "খসড়া বা ড্রাফট হিসেবে সেভ করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(Color(0xFFF1F2F5), RoundedCornerShape(8.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BookmarkBorder,
+                            contentDescription = "ড্রাফট হিসেবে সেভ করুন",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    // Right element: Blue primary "Share now" button filling the remaining space
+                    Button(
+                        onClick = {
+                            if (titleInput.trim().isEmpty()) {
+                                Toast.makeText(context, "দয়া করে ভিডিওর একটি বিবরণ বা শিরোনাম লিখুন!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                showUploadingProgressDialog = true
+                                uploadProgressValue = 0f
+                                scope.launch {
+                                    while (uploadProgressValue < 1.0f) {
+                                        delay(120)
+                                        uploadProgressValue += 0.08f
+                                    }
+                                    showUploadingProgressDialog = false
+                                    
+                                    onUploadClicked(
+                                        titleInput,
+                                        hashtagsList.toList(),
+                                        mapOf(
+                                            "category" to deenCategory,
+                                            "offlineMode" to isOfflineMode,
+                                            "autoSubtitles" to isAutoSubtitles,
+                                            "commentModeration" to isCommentModerationOn,
+                                            "hideViews" to isHideViewsCount
+                                        )
+                                    )
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1877F2)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
                     ) {
                         Text(
-                            text = "${titleInput.length.toString().toBengali()} / ২৬",
-                            fontSize = 11.sp,
-                            color = if (titleInput.length >= 26) Color.Red else Color.Gray,
+                            text = "Share now",
+                            color = Color.White,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
-
-            // Hashtags addition box (Allows up to 5 hashtags total)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(16.dp))
-                    .padding(14.dp)
-            ) {
-                Text(
-                    text = "হ্যাশট্যাগ যুক্ত করুন (Hashtags - Max 5)",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF475569)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = hashtagInput,
-                        onValueChange = { hashtagInput = it },
-                        placeholder = { Text(text = "যেমন: bayaan, ramadan (স্পেস ছাড়া)", fontSize = 12.sp, color = Color(0xFF94A3B8)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981),
-                            unfocusedBorderColor = Color(0xFFCBD5E1)
-                        )
-                    )
-
-                    Button(
-                        onClick = {
-                            if (hashtagInput.trim().isNotEmpty()) {
-                                var formatted = hashtagInput.trim().removePrefix("#")
-                                if (formatted.isNotEmpty() && hashtagsList.size < 5) {
-                                    hashtagsList.add("#$formatted")
-                                    hashtagInput = ""
-                                } else if (hashtagsList.size >= 5) {
-                                    Toast.makeText(context, "সর্বোচ্চ ৫টি হ্যাশট্যাগ যোগ করা যাবে!", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp)
-                    ) {
-                        Text(text = "যুক্ত করুন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                if (hashtagsList.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    // Wrap Row of Hashtag Chips with delete handler
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        hashtagsList.forEach { tag ->
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xFFE0F2FE), RoundedCornerShape(16.dp))
-                                    .border(1.dp, Color(0xFFBAE6FD), RoundedCornerShape(16.dp))
-                                    .clickable { hashtagsList.remove(tag) }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(text = tag, color = Color(0xFF0369A1), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                    Icon(Icons.Default.Cancel, contentDescription = "বাতিল", tint = Color(0xFF0369A1), modifier = Modifier.size(11.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Deen Category drop card selector
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(16.dp))
-                    .padding(14.dp)
-            ) {
-                Text(
-                    text = "ইসলামিক দ্বীনী ক্যাটাগরি নির্ধারণ",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF475569)
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    categoryOptions.forEach { opt ->
-                        val isSelected = deenCategory == opt
-                        Box(
-                            modifier = Modifier
-                                .border(
-                                    width = 1.dp,
-                                    color = if (isSelected) Color(0xFF10B981) else Color(0xFFCBD5E1),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .background(
-                                    color = if (isSelected) Color(0xFF10B981).copy(alpha = 0.08f) else Color.Transparent,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clickable { deenCategory = opt }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = opt,
-                                color = if (isSelected) Color(0xFF10B981) else Color(0xFF475569),
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 10-12 FEATURES RELATED TO UPLOAD OPTIONS DISPLAY PANEL
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(16.dp))
-                    .padding(14.dp)
-            ) {
-                Text(
-                    text = "ভিডিও আপলোড ফিচারসমূহ (Deen Video Features: 10-12 Options)",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1E293B)
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "ইসলামি মূল্যবোধ ও দ্বীন প্রচারে সহায়ক ফিচারসমূহ কাস্টমাইজ করুনঃ",
-                    fontSize = 11.sp,
-                    color = Color(0xFF64748B)
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Divider(color = Color(0xFFF1F5F9))
-
-                // Feature 1: Offline Mode (অফলাইন মোড)
-                UploadFeatureRow(
-                    title = "1. Offline Access Caching (অফলাইন মোড)",
-                    description = "ভিডিওটি সফলভাবে অফলাইনে দেখার জন্য ডিভাইসে ক্যাশ করে সেভ রাখা হবে।",
-                    checked = isOfflineMode,
-                    onCheckedChange = { isOfflineMode = it }
-                )
-
-                // Feature 2: High Definition Quality (ভিডিও আকার / হাই রেজোলিউশন)
-                UploadFeatureRow(
-                    title = "2. Resize Quality Full HD (ফুল এইচডি রেজোলিউশন)",
-                    description = "ভিডিও রেজোলিউশন ১০৮০p ট্রানজ্যাকশন অপটিমাইজ করে আপলোড করবে।",
-                    checked = isHdQuality,
-                    onCheckedChange = { isHdQuality = it }
-                )
-
-                // Feature 3: Vocal Boost Filter (ভয়েস বুস্ট ফিল্টার)
-                UploadFeatureRow(
-                    title = "3. Islamic Voice Vocal Booster (ভয়েস বুস্ট ফিল্টার)",
-                    description = "ভিডিও বয়ান বা তিলাওয়াত এর ব্যাকগ্রাউন্ড নয়েজ কমিয়ে কণ্ঠস্বর সুস্পষ্ট করবে।",
-                    checked = isVoiceBoost,
-                    onCheckedChange = { isVoiceBoost = it }
-                )
-
-                // Feature 4: Subtitles Generator (স্বয়ংক্রিয় ক্যাপশন জেনারেটর)
-                UploadFeatureRow(
-                    title = "4. Auto Subtitles AI (স্বয়ংক্রিয় বাংলা সাবটাইটেল)",
-                    description = "এআই এর মাধ্যমে সাউন্ডট্র্যাক থেকে স্বয়ংক্রিয় বাংলা সাবটাইটেল বা ক্যাপশন যুক্ত হবে।",
-                    checked = isAutoSubtitles,
-                    onCheckedChange = { isAutoSubtitles = it }
-                )
-
-                // Feature 5: Halal Moderation Check (হালাল মডারেশন ফিল্টার)
-                UploadFeatureRow(
-                    title = "5. Halal Safe Checker (হালাল মডারেশন ফিল্টার)",
-                    description = "অ্যাপের নিয়মাবলী অনুযায়ী শালীনতা ও ইসলামিক সুর নিশ্চিত করবে।",
-                    checked = isHalalModCheck,
-                    onCheckedChange = { isHalalModCheck = it }
-                )
-
-                // Feature 6: Frame Selector / Thumbnail frames editor (থাম্বনেইল এডিটর)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "6. Thumbnail Frame (থাম্বনেইল কভার ফ্রেম)",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E293B)
-                        )
-                        Text(
-                            text = "ক্যালকুলেট করে আকর্ষণীয় কভার ফ্রেম নির্ধারণ করুন।",
-                            fontSize = 11.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (i in 1..3) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (thumbnailFrameSelected == i) Color(0xFF10B981) else Color(0xFFCBD5E1))
-                                    .clickable { thumbnailFrameSelected = i },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = i.toString().toBengali(),
-                                    fontSize = 11.sp,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                Divider(color = Color(0xFFF1F5F9))
-
-                // Feature 7: Copyright verification audio scan (কপিরাইট যাচাইকরণ ঢাল)
-                UploadFeatureRow(
-                    title = "7. Copyright Scan audio protection (কপিরাইট যাচাইকরণ শিল্ড)",
-                    description = "অ্যাপের ব্যাকগ্রাউন্ডে মিউজিক বা অন্য কোনো অননুমোদিত শব্দ স্ক্যান করে নোটিফাই করবে।",
-                    checked = isCopyrightShieldOn,
-                    onCheckedChange = { isCopyrightShieldOn = it }
-                )
-
-                // Feature 8: Hateful, bad vocabulary comment automatic deletion filters (কমেন্ট মডারেশন)
-                UploadFeatureRow(
-                    title = "8. Hate-Free Safe Comments (পবিত্র মন্তব্য মডারেশন)",
-                    description = "দ্বীন-বিরোধী অশোভন শব্দ বা গালাগালি স্বয়ংক্রিয়ভাবে ব্লক ও রিমুভ রাখবে।",
-                    checked = isCommentModerationOn,
-                    onCheckedChange = { isCommentModerationOn = it }
-                )
-
-                // Feature 9: Hide Views count to ensure sincere action of Sincerity (ভিউ কাউন্ট গোপন করুন - রিয়া থেকে সতর্কতা)
-                UploadFeatureRow(
-                    title = "9. Hide View Count for Ikhlas (ভিউ কাউন্ট প্রদর্শন গোপন রাখুন)",
-                    description = "রিয়া ও কৃত্তিম লোকদেখানো অহংকার এড়াতে নিজের ভিডিওর ভিউ কাউন্ট লুকান।",
-                    checked = isHideViewsCount,
-                    onCheckedChange = { isHideViewsCount = it }
-                )
-
-                // Feature 10: Low bandwidth, internet speed data optimizer (ডাটা সেভার কম্প্রেশন)
-                UploadFeatureRow(
-                    title = "10. Bandwidth Data Optimizer (ডাটা সেভার ডাটা সংকোচন)",
-                    description = "মোবাইল ডাটা খরচ ৩০% বাঁচাতে ভিডিও কোডেক অপ্টিমাইজ করবে।",
-                    checked = isDataSaverOn,
-                    onCheckedChange = { isDataSaverOn = it }
-                )
-
-                // Feature 11: Ultra Portrait scale height optimization fits (ভিডিওর উচ্চতা অপ্টিমাইজেশন)
-                UploadFeatureRow(
-                    title = "11. Ultra Screen Height Fit (পোর্ট্রেট উচ্চতা অপ্টিমাইজড)",
-                    description = "মোবাইল স্ক্রিনে দেখার সুবিধার্থে ডাইনামিক হাইট অনুপাত সমন্বয় করবে।",
-                    checked = isVerticalHeightFit,
-                    onCheckedChange = { isVerticalHeightFit = it }
-                )
-            }
-
-            // Upload action button
-            Button(
-                onClick = {
-                    if (titleInput.trim().isEmpty()) {
-                        Toast.makeText(context, "দয়া করে ভিডিওর একটি শিরোনাম লিখুন!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        // Launch animated upload process simulator
-                        showUploadingProgressDialog = true
-                        uploadProgressValue = 0f
-                        scope.launch {
-                            while (uploadProgressValue < 1.0f) {
-                                delay(120)
-                                uploadProgressValue += 0.08f
-                            }
-                            showUploadingProgressDialog = false
-                            
-                            // Callback successfully
-                            onUploadClicked(
-                                titleInput,
-                                hashtagsList.toList(),
-                                mapOf(
-                                    "category" to deenCategory,
-                                    "offlineMode" to isOfflineMode,
-                                    "autoSubtitles" to isAutoSubtitles,
-                                    "commentModeration" to isCommentModerationOn,
-                                    "hideViews" to isHideViewsCount
-                                )
-                            )
-                        }
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "ভিডিওটি আপলোড করুন",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
         }
     }
 
-    // Interactive Full-Circle Uploding Dialogue Simulator
+    // Animated full circular uploading progress indicator dialog
     if (showUploadingProgressDialog) {
         AlertDialog(
             onDismissRequest = {},
@@ -1542,7 +1512,7 @@ fun VideoUploadView(
                 ) {
                     CircularProgressIndicator(
                         progress = { uploadProgressValue.coerceIn(0f, 1f) },
-                        color = Color(0xFF10B981),
+                        color = Color(0xFF1877F2),
                         strokeWidth = 6.dp,
                     )
                     Spacer(modifier = Modifier.height(18.dp))
@@ -1564,49 +1534,204 @@ fun VideoUploadView(
             confirmButton = {}
         )
     }
+
+    // Modern Dialog modal to pick Islamic Category removed in favor of full screen screen
+
+
+    // Modern Dialog modal to pick Hashtags
+    if (showHashtagsDialog) {
+        AlertDialog(
+            onDismissRequest = { showHashtagsDialog = false },
+            title = {
+                Text(
+                    text = "Add Hashtags (Max 5)",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = Color.Black
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = hashtagInput,
+                        onValueChange = { hashtagInput = it },
+                        placeholder = { Text(text = "e.g. bayaan, ramadan (no spaces)", fontSize = 12.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF1877F2),
+                            unfocusedBorderColor = Color(0xFFE4E6EB)
+                        )
+                    )
+
+                    Button(
+                        onClick = {
+                            if (hashtagInput.trim().isNotEmpty()) {
+                                val formatted = hashtagInput.trim().removePrefix("#")
+                                if (formatted.isNotEmpty() && hashtagsList.size < 5) {
+                                    hashtagsList.add("#$formatted")
+                                    hashtagInput = ""
+                                } else if (hashtagsList.size >= 5) {
+                                    Toast.makeText(context, "Max 5 hashtags can be added!", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1877F2)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = "Add", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (hashtagsList.isNotEmpty()) {
+                        Text(
+                            text = "Added tags (tap to remove):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        androidx.compose.foundation.layout.FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            hashtagsList.forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFFE7F3FF), RoundedCornerShape(16.dp))
+                                        .clickable { hashtagsList.remove(tag) }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(text = tag, color = Color(0xFF1877F2), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Icon(Icons.Default.Cancel, contentDescription = "Remove", tint = Color(0xFF1877F2), modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showHashtagsDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1877F2))
+                ) {
+                    Text("Done")
+                }
+            },
+            shape = RoundedCornerShape(12.dp),
+            containerColor = Color.White
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CategorySelectionScreen(
+    currentCategory: String,
+    onCategorySelected: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    val categories = listOf("Bayan", "Recitation", "Nasheed", "Education", "Hadith", "Fiqh", "Quran", "Tafsir", "Seerah", "Dawah", "History")
+    
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Select Category") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+            )
+        }
+    ) { padding ->
+        LazyColumn(modifier = Modifier.padding(padding)) {
+            items(categories) { category ->
+                ListItem(
+                    headlineContent = { Text(category) },
+                    modifier = Modifier.clickable { onCategorySelected(category) },
+                    trailingContent = {
+                        if (category == currentCategory) {
+                            Icon(Icons.Default.Check, contentDescription = "Selected", tint = Color(0xFF1877F2))
+                        }
+                    }
+                )
+            }
+        }
+    }
 }
 
 @Composable
-fun UploadFeatureRow(
+fun ReelSettingRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
-    description: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    subtitle: String?,
+    onClick: () -> Unit,
+    action: @Composable () -> Unit
 ) {
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .minimumInteractiveComponentSize()
+                .clickable { onClick() }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                Text(
-                    text = title,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1E293B)
-                )
-                Text(
-                    text = description,
-                    fontSize = 11.sp,
-                    color = Color(0xFF64748B),
-                    lineHeight = 15.sp
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color(0xFFF1F2F5), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(20.dp)
                 )
             }
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFF10B981),
-                    uncheckedThumbColor = Color(0xFF94A3B8),
-                    uncheckedTrackColor = Color(0xFFF1F5F9)
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = title,
+                    color = Color.Black,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
-            )
+                if (subtitle != null) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        color = Color(0xFF65676B),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            action()
         }
-        Divider(color = Color(0xFFF1F5F9))
+        Divider(color = Color(0xFFF1F2F5), thickness = 0.5.dp)
     }
 }
 

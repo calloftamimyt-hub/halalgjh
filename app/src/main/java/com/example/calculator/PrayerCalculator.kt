@@ -50,14 +50,14 @@ class PrayerCalculator {
             return aFixed
         }
 
-        fun calculatePrayerTimes(lat: Double, lng: Double, timeZone: Double, calendar: Calendar = Calendar.getInstance()): PrayerTimes {
+        fun calculatePrayerTimes(lat: Double, lng: Double, timeZone: Double, madhab: Int = 1, calendar: Calendar = Calendar.getInstance()): PrayerTimes {
             val year = calendar.get(Calendar.YEAR)
             val month = calendar.get(Calendar.MONTH) + 1
             val day = calendar.get(Calendar.DAY_OF_MONTH)
 
             val J = julianDate(year, month, day) - lng / (15.0 * 24.0)
 
-            return calculateTimes(J, lat, lng, timeZone)
+            return calculateTimes(J, lat, lng, timeZone, madhab)
         }
 
         private fun julianDate(year: Int, month: Int, day: Int): Double {
@@ -78,7 +78,9 @@ class PrayerCalculator {
             val q = fixAngle(280.459 + 0.98564736 * d)
             val L = fixAngle(q + 1.915 * dsin(g) + 0.020 * dsin(2 * g))
             val e = 23.439 - 0.00000036 * d
-            val RA = darctan(dcos(e) * dtan(L)) / 15.0
+            
+            // Use atan2 to preserve quadrant information
+            var RA = Math.toDegrees(kotlin.math.atan2(dcos(e) * dsin(L), dcos(L))) / 15.0
             val RA_fix = fixHour(RA)
             val q_fix = fixHour(q / 15.0)
             var eqT = q_fix - RA_fix
@@ -104,7 +106,7 @@ class PrayerCalculator {
             return darccos(x) / 15.0
         }
 
-        private fun calculateTimes(J: Double, lat: Double, lng: Double, timeZone: Double): PrayerTimes {
+        private fun calculateTimes(J: Double, lat: Double, lng: Double, timeZone: Double, madhab: Int): PrayerTimes {
             val declination = sunDeclination(J)
             val eqT = equationOfTime(J)
 
@@ -117,11 +119,10 @@ class PrayerCalculator {
             val maghribAngle = 0.833 // consider refraction and sun disc
             val sunriseAngle = 0.833
 
-            val asrAngle = darccot(1.0 + dtan(Math.abs(lat - declination))) // Shafi
-            
+            val asrHeight = darccot(mathAsrCalc(lat, declination, madhab))
             val tFajr = timeDiff(fajrAngle, declination, lat)
             val tSunrise = timeDiff(sunriseAngle, declination, lat)
-            val tAsr = timeDiff(darccot(mathAsrCalc(lat, declination)), declination, lat)
+            val tAsr = timeDiff(-asrHeight, declination, lat)
             val tMaghrib = timeDiff(maghribAngle, declination, lat)
             val tIsha = timeDiff(ishaAngle, declination, lat)
 
@@ -146,8 +147,9 @@ class PrayerCalculator {
             )
         }
 
-        private fun mathAsrCalc(lat: Double, declination: Double): Double {
-            return 1.0 + dtan(Math.abs(lat - declination))
+        private fun mathAsrCalc(lat: Double, declination: Double, madhab: Int): Double {
+            val factor = if (madhab == 2) 2.0 else 1.0
+            return factor + dtan(Math.abs(lat - declination))
         }
 
         private fun formatTime(timeVal: Double): String {

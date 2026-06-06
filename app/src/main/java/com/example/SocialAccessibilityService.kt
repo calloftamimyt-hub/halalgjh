@@ -11,6 +11,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.TextView
 import com.example.ui.theme.*
@@ -27,112 +28,139 @@ class SocialAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val foregroundPackage = event.packageName?.toString() ?: return
-            
-            // Skip safe apps and self
-            if (foregroundPackage == packageName || 
-                foregroundPackage == "com.android.launcher" || 
-                foregroundPackage.contains("launcher") ||
-                foregroundPackage.contains("com.google.android.googlequicksearchbox")) {
-                hideBlockingOverlay()
-                return
-            }
+        if (event == null) return
 
-            val sharedPrefs = getSharedPreferences("profile_prefs", Context.MODE_PRIVATE)
-            val isSocialBlocked = sharedPrefs.getBoolean("social_blocked", false)
-            val isWebBlocked = sharedPrefs.getBoolean("web_blocked", false)
+        val foregroundPackage = event.packageName?.toString() ?: ""
+        val eventType = event.eventType
 
-            if (!isSocialBlocked && !isWebBlocked) {
-                hideBlockingOverlay()
-                return
-            }
+        // 1. Skip safe apps and self
+        if (foregroundPackage == packageName) {
+            // Fix for overlay flashing: if the overlay is showing, don't hide it 
+            // when we receive an event from our own package (likely from the overlay itself).
+            if (isOverlayShowing) return
+            return
+        }
 
-            var shouldBlock = false
-            var platformNameBengali = ""
+        if (isLauncher(foregroundPackage)) {
+            hideBlockingOverlay()
+            return
+        }
 
-            when {
-                // ... (Logic for identifying blocked apps remains same)
-                foregroundPackage.contains("com.facebook.katana") || foregroundPackage.contains("com.facebook.lite") -> {
-                    val isFbApp = sharedPrefs.getBoolean("fb_app_blocked", false)
-                    val isFbStory = sharedPrefs.getBoolean("fb_story_blocked", false)
-                    val isFbSearch = sharedPrefs.getBoolean("fb_search_blocked", false)
-                    val isFbReels = sharedPrefs.getBoolean("fb_reels_blocked", false)
-                    val isFbEntire = sharedPrefs.getBoolean("fb_entire_blocked", false)
-                    if (isFbApp || isFbStory || isFbSearch || isFbReels || isFbEntire) {
-                        shouldBlock = true
-                        platformNameBengali = "ফেসবুক (Facebook)"
-                    }
-                }
-                foregroundPackage.contains("com.google.android.youtube") || foregroundPackage.contains("com.google.android.apps.youtube.kids") -> {
-                    val isYtLong = sharedPrefs.getBoolean("yt_long_blocked", false)
-                    val isYtReels = sharedPrefs.getBoolean("yt_reels_blocked", false)
-                    val isYtSearch = sharedPrefs.getBoolean("yt_search_blocked", false)
-                    val isYtEntire = sharedPrefs.getBoolean("yt_entire_blocked", false)
-                    if (isYtLong || isYtReels || isYtSearch || isYtEntire) {
-                        shouldBlock = true
-                        platformNameBengali = "ইউটিউব (YouTube)"
-                    }
-                }
-                foregroundPackage.contains("com.instagram.android") -> {
-                    val isIgApp = sharedPrefs.getBoolean("ig_app_blocked", false)
-                    val isIgSearch = sharedPrefs.getBoolean("ig_search_blocked", false)
-                    val isIgReels = sharedPrefs.getBoolean("ig_reels_blocked", false)
-                    val isIgFeatures = sharedPrefs.getBoolean("ig_features_blocked", false)
-                    val isIgEntire = sharedPrefs.getBoolean("ig_entire_blocked", false)
-                    if (isIgApp || isIgSearch || isIgReels || isIgFeatures || isIgEntire) {
-                        shouldBlock = true
-                        platformNameBengali = "ইনস্টাগ্রাম (Instagram)"
-                    }
-                }
-                foregroundPackage.contains("org.telegram.messenger") -> {
-                    val isTgApp = sharedPrefs.getBoolean("tg_app_blocked", false)
-                    val isTgSearch = sharedPrefs.getBoolean("tg_search_blocked", false)
-                    val isTgStory = sharedPrefs.getBoolean("tg_story_blocked", false)
-                    val isTgEntire = sharedPrefs.getBoolean("tg_entire_blocked", false)
-                    if (isTgApp || isTgSearch || isTgStory || isTgEntire) {
-                        shouldBlock = true
-                        platformNameBengali = "টেলিগ্রাম (Telegram)"
-                    }
-                }
-                foregroundPackage.contains("com.whatsapp") -> {
-                    val isWaApp = sharedPrefs.getBoolean("wa_app_blocked", false)
-                    val isWaStory = sharedPrefs.getBoolean("wa_story_blocked", false)
-                    val isWaEntire = sharedPrefs.getBoolean("wa_entire_blocked", false)
-                    if (isWaApp || isWaStory || isWaEntire) {
-                        shouldBlock = true
-                        platformNameBengali = "হোয়াটসঅ্যাপ (WhatsApp)"
-                    }
-                }
-                foregroundPackage.contains("com.facebook.orca") -> {
-                    val isMsApp = sharedPrefs.getBoolean("ms_app_blocked", false)
-                    val isMsStory = sharedPrefs.getBoolean("ms_story_blocked", false)
-                    val isMsEntire = sharedPrefs.getBoolean("ms_entire_blocked", false)
-                    if (isMsApp || isMsStory || isMsEntire) {
-                        shouldBlock = true
-                        platformNameBengali = "মেসেঞ্জার (Messenger)"
-                    }
-                }
-                isWebBlocked && (foregroundPackage.contains("chrome") || 
-                                 foregroundPackage.contains("browser") || 
-                                 foregroundPackage.contains("firefox") || 
-                                 foregroundPackage.contains("opera") || 
-                                 foregroundPackage.contains("sbrowser")) -> {
-                    val blockedList = sharedPrefs.getString("blocked_websites_list", "") ?: ""
-                    if (blockedList.isNotEmpty()) {
-                        val firstBlocked = blockedList.split(",").firstOrNull { it.isNotBlank() } ?: "ওয়েবসাইট"
-                        shouldBlock = true
-                        platformNameBengali = "ওয়েবসাইট ($firstBlocked)"
-                    }
-                }
-            }
+        val sharedPrefs = getSharedPreferences("profile_prefs", Context.MODE_PRIVATE)
+        val isSocialBlocked = sharedPrefs.getBoolean("social_blocked", false)
+        val isWebBlocked = sharedPrefs.getBoolean("web_blocked", false)
 
-            if (shouldBlock) {
-                showBlockingOverlay(platformNameBengali)
-            } else {
-                hideBlockingOverlay()
+        if (!isSocialBlocked && !isWebBlocked) {
+            hideBlockingOverlay()
+            return
+        }
+
+        var shouldBlock = false
+        var platformNameBengali = ""
+
+        // 2. Check Apps
+        val appBlockName = getAppBlockedName(foregroundPackage, sharedPrefs)
+        if (appBlockName != null) {
+            shouldBlock = true
+            platformNameBengali = appBlockName
+        } 
+        
+        // 3. Check Websites (if app not already blocked)
+        if (!shouldBlock && isWebBlocked && isBrowserPackage(foregroundPackage)) {
+            val rootNode = event.source ?: rootInActiveWindow
+            val url = rootNode?.let { findUrlInNodes(it) }
+            if (url != null) {
+                val blockedSiteMatch = getBlockedWebsiteMatch(url, sharedPrefs)
+                if (blockedSiteMatch != null) {
+                    shouldBlock = true
+                    platformNameBengali = "ওয়েবসাইট ($blockedSiteMatch)"
+                }
             }
         }
+
+        if (shouldBlock) {
+            showBlockingOverlay(platformNameBengali)
+        } else if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            // Only hide on package change if we're certain it shouldn't be blocked.
+            hideBlockingOverlay()
+        }
+    }
+
+    private fun isLauncher(pkg: String): Boolean {
+        return pkg == "com.android.launcher" || 
+               pkg.contains("launcher") || 
+               pkg.contains("com.google.android.googlequicksearchbox")
+    }
+
+    private fun isBrowserPackage(pkg: String): Boolean {
+        val browsers = listOf("chrome", "browser", "firefox", "opera", "sbrowser", "msedge", "vivaldi", "duckduckgo", "brave")
+        return browsers.any { pkg.contains(it) }
+    }
+
+    private fun findUrlInNodes(node: AccessibilityNodeInfo): String? {
+        val nodeId = node.viewIdResourceName?.lowercase() ?: ""
+        if (nodeId.contains("url") || nodeId.contains("address") || nodeId.contains("location")) {
+            val text = node.text?.toString()
+            if (text != null && (text.contains(".") || text.contains("http"))) {
+                return text
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findUrlInNodes(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun getBlockedWebsiteMatch(url: String, sharedPrefs: android.content.SharedPreferences): String? {
+        val blockedList = sharedPrefs.getString("blocked_websites_list", "") ?: ""
+        if (blockedList.isBlank()) return null
+        
+        val sites = blockedList.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        val lowerUrl = url.lowercase()
+        return sites.firstOrNull { lowerUrl.contains(it) }
+    }
+
+    private fun getAppBlockedName(foregroundPackage: String, sharedPrefs: android.content.SharedPreferences): String? {
+        return when {
+            foregroundPackage.contains("com.facebook.katana") || foregroundPackage.contains("com.facebook.lite") -> {
+                if (isAnyBlocked(sharedPrefs, listOf("fb_app_blocked", "fb_story_blocked", "fb_search_blocked", "fb_reels_blocked", "fb_entire_blocked"))) {
+                    "ফেসবুক (Facebook)"
+                } else null
+            }
+            foregroundPackage.contains("com.google.android.youtube") || foregroundPackage.contains("com.google.android.apps.youtube.kids") -> {
+                if (isAnyBlocked(sharedPrefs, listOf("yt_long_blocked", "yt_reels_blocked", "yt_search_blocked", "yt_entire_blocked"))) {
+                    "ইউটিউব (YouTube)"
+                } else null
+            }
+            foregroundPackage.contains("com.instagram.android") -> {
+                if (isAnyBlocked(sharedPrefs, listOf("ig_app_blocked", "ig_search_blocked", "ig_reels_blocked", "ig_features_blocked", "ig_entire_blocked"))) {
+                    "ইনস্টাগ্রাম (Instagram)"
+                } else null
+            }
+            foregroundPackage.contains("org.telegram.messenger") -> {
+                if (isAnyBlocked(sharedPrefs, listOf("tg_app_blocked", "tg_search_blocked", "tg_story_blocked", "tg_entire_blocked"))) {
+                    "টেলিগ্রাম (Telegram)"
+                } else null
+            }
+            foregroundPackage.contains("com.whatsapp") -> {
+                if (isAnyBlocked(sharedPrefs, listOf("wa_app_blocked", "wa_story_blocked", "wa_entire_blocked"))) {
+                    "হোয়াটসঅ্যাপ (WhatsApp)"
+                } else null
+            }
+            foregroundPackage.contains("com.facebook.orca") -> {
+                if (isAnyBlocked(sharedPrefs, listOf("ms_app_blocked", "ms_story_blocked", "ms_entire_blocked"))) {
+                    "মেসেঞ্জার (Messenger)"
+                } else null
+            }
+            else -> null
+        }
+    }
+
+    private fun isAnyBlocked(sharedPrefs: android.content.SharedPreferences, keys: List<String>): Boolean {
+        return keys.any { sharedPrefs.getBoolean(it, false) }
     }
 
     private fun showBlockingOverlay(platformName: String) {

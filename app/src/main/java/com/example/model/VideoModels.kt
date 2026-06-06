@@ -19,8 +19,12 @@ data class UserUploadedVideo(
     val isCommentModerated: Boolean = true,
     val isHideViews: Boolean = false,
     val status: String = "PENDING", // PENDING, APPROVED, REJECTED
-    val telegramFileId: String = ""
+    val telegramFileId: String = "",
+    val thumbnailUrl: String = "",
+    val viewsCount: Long = 0L,
+    val likedBy: List<String> = emptyList(),
+    val sharesCount: Long = 0L
 ) {
     // Empty constructor for Firestore
-    constructor() : this("", "", "Untitled", "Unknown Author", "", "", 0L)
+    constructor() : this("", "", "Untitled", "Unknown Author", "", "", 0L, thumbnailUrl = "", viewsCount = 0L, likedBy = emptyList(), sharesCount = 0L)
 }

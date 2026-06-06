@@ -20,7 +20,20 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val prayerName = intent.getStringExtra("PRAYER_NAME") ?: "Prayer"
         
-        showNotification(context, prayerName)
+        val prayerNameBen = when(prayerName) {
+            "Fajr" -> "ফজর"
+            "Sunrise" -> "সূর্যোদয়"
+            "Dhuhr" -> "যোহর"
+            "Asr" -> "আসর"
+            "Maghrib" -> "মাগরিব"
+            "Isha" -> "এশা"
+            else -> prayerName
+        }
+
+        showNotification(context, prayerNameBen)
+        
+        // Reschedule for the next prayer
+        AlarmHelper.reschedule(context)
     }
 
     private fun showNotification(context: Context, prayerName: String) {
@@ -42,8 +55,8 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Time for $prayerName")
-            .setContentText("It is now $prayerName time. Please prepare for prayer.")
+            .setContentTitle("ওয়াক্ত পরিবর্তন হয়েছে: $prayerName")
+            .setContentText("এখন $prayerName এর সময়। দয়া করে নামাজের জন্য প্রস্তুতি নিন।")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setSound(alarmSound)
             .setAutoCancel(true)

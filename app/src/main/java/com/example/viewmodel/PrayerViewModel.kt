@@ -74,6 +74,14 @@ data class ViewState(
         "Maghrib" to true,
         "Isha" to true
     ),
+    val forbiddenSunrise: String = "০০:০০",
+    val forbiddenSunriseEnd: String = "০০:০০",
+    val forbiddenNoon: String = "০০:০০",
+    val forbiddenNoonEnd: String = "০০:০০",
+    val forbiddenSunset: String = "০০:০০",
+    val forbiddenSunsetEnd: String = "০০:০০",
+    val currentPrayerName: String = "",
+    val madhab: Int = 2, // 1 for Shafi, 2 for Hanafi
     val error: String? = null
 )
 
@@ -88,15 +96,32 @@ class PrayerViewModel : ViewModel() {
     private var lastLat = 23.8103
     private var lastLng = 90.4125
     private var lastOffset = 6.0
+    private var lastMadhab = 2
     private var hasLocationData = true
 
     init {
+        // We will receive context later to load from prefs if needed, 
+        // initially use defaults
+        refreshState()
+    }
+    
+    fun setMadhab(context: Context, m: Int) {
+        lastMadhab = m
+        context.getSharedPreferences("prayer_prefs", Context.MODE_PRIVATE).edit().putInt("madhab", m).apply()
+        _state.update { it.copy(madhab = m) }
+        refreshState()
+    }
+    
+    fun loadSettings(context: Context) {
+        val prefs = context.getSharedPreferences("prayer_prefs", Context.MODE_PRIVATE)
+        lastMadhab = prefs.getInt("madhab", 2)
+        _state.update { it.copy(madhab = lastMadhab) }
         refreshState()
     }
 
     private fun refreshState() {
         val dateFormat = SimpleDateFormat("dd MMMM, yyyy", Locale.US)
-        val defaultTimes = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset)
+        val defaultTimes = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab)
         _state.update {
             it.copy(
                 isLoading = false,
@@ -104,7 +129,30 @@ class PrayerViewModel : ViewModel() {
                 prayerTimes = defaultTimes
             )
         }
+        calculateForbiddenTimes(defaultTimes)
         updateNextPrayer(defaultTimes)
+    }
+
+    private fun calculateForbiddenTimes(times: com.example.calculator.PrayerTimes) {
+        val format = { h: Double ->
+            val totalMin = (h * 60).toInt()
+            val hour = (totalMin / 60) % 24
+            val min = totalMin % 60
+            val p = if (hour >= 12) "পিএম" else "এএম"
+            val displayHour = if (hour > 12) hour - 12 else if (hour == 0) 12 else hour
+            String.format("%02d:%02d %s", displayHour, min, p).toBengali()
+        }
+
+        _state.update {
+            it.copy(
+                forbiddenSunrise = format(times.sunriseHours),
+                forbiddenSunriseEnd = format(times.sunriseHours + 15.0 / 60.0),
+                forbiddenNoon = format(times.dhuhrHours - 15.0 / 60.0),
+                forbiddenNoonEnd = format(times.dhuhrHours),
+                forbiddenSunset = format(times.maghribHours - 15.0 / 60.0),
+                forbiddenSunsetEnd = format(times.maghribHours)
+            )
+        }
     }
 
     fun setLocationManually(districtName: String, lat: Double, lng: Double) {
@@ -142,6 +190,19 @@ class PrayerViewModel : ViewModel() {
     fun startLocationUpdates(context: Context) {
         if (!_state.value.isAutoLocation) return
 
+        val fineLocationPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        val coarseLocationPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+
+        if (fineLocationPermission != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            coarseLocationPermission != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            _state.update { it.copy(hasLocationPermission = false, isLoading = false, error = "Permission Required") }
+            return
+        }
+
         if (fusedLocationClient == null) {
             fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         }
@@ -162,7 +223,8 @@ class PrayerViewModel : ViewModel() {
                     lastOffset = timeZoneOffset
                     hasLocationData = true
 
-                    val times = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset)
+                    val times = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab)
+                    calculateForbiddenTimes(times)
                     AlarmHelper.scheduleNextPrayer(context, lastLat, lastLng, lastOffset, _state.value.alarms)
 
                     _state.update { it.copy(prayerTimes = times, locationName = "আমার অবস্থান") }
@@ -183,6 +245,7 @@ class PrayerViewModel : ViewModel() {
                     hasLocationData = true
 
                     val times = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset)
+                    calculateForbiddenTimes(times)
                     AlarmHelper.scheduleNextPrayer(context, lastLat, lastLng, lastOffset, _state.value.alarms)
 
                     _state.update { it.copy(prayerTimes = times, locationName = "আমার অবস্থান") }
@@ -235,7 +298,7 @@ class PrayerViewModel : ViewModel() {
                 nextTime = prayerList[i].third
                 prevTime = if (i > 0) prayerList[i-1].third else {
                     val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
-                    val y = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, yesterday)
+                    val y = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, yesterday)
                     y.ishaHours - 24.0
                 }
                 break
@@ -246,12 +309,33 @@ class PrayerViewModel : ViewModel() {
             nextName = "Fajr"
             nextNameBen = if (GlobalLanguage.isEnglish) "Fajr" else "ফজর"
             val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
-            val t = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, tomorrow)
+            val t = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, tomorrow)
             nextTime = t.fajrHours + 24.0
             prevTime = times.ishaHours
         }
 
         _state.update { it.copy(nextPrayerName = nextName, nextPrayerNameBen = nextNameBen) }
+
+        // Determine current prayer
+        var currentName = ""
+        for (i in prayerList.indices) {
+            val start = prayerList[i].third
+            val end = if (i < prayerList.size - 1) prayerList[i+1].third else {
+                val t = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+                val nextFajr = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, t).fajrHours
+                nextFajr + 24.0
+            }
+            if (currentHourDecimal >= start && currentHourDecimal < end) {
+                currentName = prayerList[i].first
+                break
+            }
+        }
+        if (currentName.isEmpty() && currentHourDecimal < prayerList[0].third) {
+            currentName = "Isha" // from midnight to Fajr
+        }
+
+        _state.update { it.copy(currentPrayerName = currentName) }
+        
         startCountdownTimer(nextTime, prevTime, times)
     }
 

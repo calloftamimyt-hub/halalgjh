@@ -74,27 +74,58 @@ class MainActivity : ComponentActivity() {
                 val activePlatform = interceptedPlatformName
 
                 // Handle starting/stopping service reactively based on preferences
-                val sharedPrefs = remember { context.getSharedPreferences("profile_prefs", MODE_PRIVATE) }
-                val isSocialBlocked = sharedPrefs.getBoolean("social_blocked", false)
+                val sharedPrefs = remember(context) { context.getSharedPreferences("profile_prefs", Activity.MODE_PRIVATE) }
                 
-                val settingsViewModel: com.example.viewmodel.SettingsViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-                    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                        return com.example.viewmodel.SettingsViewModel(context) as T
+                val settingsViewModel: com.example.viewmodel.SettingsViewModel = viewModel(
+                    factory = remember(context) {
+                        object : androidx.lifecycle.ViewModelProvider.Factory {
+                            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                return com.example.viewmodel.SettingsViewModel(context) as T
+                            }
+                        }
                     }
-                })
+                )
                 val appLanguage by settingsViewModel.language.collectAsState()
                 val strings = com.example.ui.getString(appLanguage)
+                
+                val onboardingPrefs = remember(context) { context.getSharedPreferences("onboarding_prefs", Activity.MODE_PRIVATE) }
+                var isOnboardingNeeded by remember { mutableStateOf(!onboardingPrefs.getBoolean("onboarding_completed", false)) }
+
+                // Reactive state for social blocked status
+                val isSocialBlockedState = remember { mutableStateOf(sharedPrefs.getBoolean("social_blocked", false)) }
+                
+                // Listener to update state when preferences change
+                DisposableEffect(sharedPrefs) {
+                    val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+                        if (key == "social_blocked") {
+                            isSocialBlockedState.value = prefs.getBoolean("social_blocked", false)
+                        }
+                    }
+                    sharedPrefs.registerOnSharedPreferenceChangeListener(listener)
+                    onDispose {
+                        sharedPrefs.unregisterOnSharedPreferenceChangeListener(listener)
+                    }
+                }
 
                 CompositionLocalProvider(com.example.ui.LocalAppStrings provides strings) {
-                    LaunchedEffect(isSocialBlocked) {
-                        if (isSocialBlocked && SocialBlockerService.isPermissionGranted(context)) {
+                    LaunchedEffect(isSocialBlockedState.value, context) {
+                        if (isSocialBlockedState.value && SocialBlockerService.isPermissionGranted(context)) {
                             SocialBlockerService.startService(context)
                         } else {
                             SocialBlockerService.stopService(context)
                         }
                     }
 
-                    if (activePlatform != null) {
+                    if (isOnboardingNeeded) {
+                        OnboardingScreen(
+                            prayerViewModel = viewModel() , // We'll get it from ViewModelProvider if needed or just use default here
+                            settingsViewModel = settingsViewModel,
+                            onComplete = {
+                                onboardingPrefs.edit().putBoolean("onboarding_completed", true).apply()
+                                isOnboardingNeeded = false
+                            }
+                        )
+                    } else if (activePlatform != null) {
                         SocialBlockerOverlay(
                             platformName = activePlatform,
                             onDismissToHome = {
@@ -109,34 +140,48 @@ class MainActivity : ComponentActivity() {
                     } else {
                         val viewModel: PrayerViewModel = viewModel()
                         val state by viewModel.state.collectAsState()
+                        
+                        // Load saved settings (like Madhab)
+                        LaunchedEffect(Unit) {
+                            viewModel.loadSettings(context)
+                        }
 
-                        val permissions = mutableListOf(
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                            Manifest.permission.ACCESS_FINE_LOCATION
-                        )
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                        val permissions = remember {
+                            val list = mutableListOf(
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                                Manifest.permission.ACCESS_FINE_LOCATION
+                            )
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                list.add(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            list
                         }
 
                         val multiplePermissionsState = rememberMultiplePermissionsState(permissions)
                         var selectedTab by remember { mutableStateOf("home") }
+                        var videoActiveSubTab by remember { mutableStateOf("home") }
+                        
+                        var selectedCreatorUid by remember { mutableStateOf<String?>(null) }
+                        var selectedCreatorName by remember { mutableStateOf("") }
+                        var isSavedPostsOpen by remember { mutableStateOf(false) }
+                        var isAlarmPageOpen by remember { mutableStateOf(false) }
+                        var isZakatPageOpen by remember { mutableStateOf(false) }
+                        var isCalendarPageOpen by remember { mutableStateOf(false) }
+                        var isQiblaPageOpen by remember { mutableStateOf(false) }
+                        var isNotificationsPageOpen by remember { mutableStateOf(false) }
 
                         val view = LocalView.current
-                        val isDarkStatusBar = selectedTab == "video" || selectedTab == "create"
+                        val isProfileOverlayOpen = selectedCreatorUid != null || isSavedPostsOpen || isAlarmPageOpen || isZakatPageOpen || isCalendarPageOpen || isQiblaPageOpen || isNotificationsPageOpen
+                        val isDarkStatusBar = ((selectedTab == "video" && videoActiveSubTab == "home") || selectedTab == "create") && !isProfileOverlayOpen
                         
-                        SideEffect {
+                        LaunchedEffect(isDarkStatusBar, isProfileOverlayOpen, view) {
                             val window = (view.context as Activity).window
-                            if (isDarkStatusBar) {
-                                window.statusBarColor = android.graphics.Color.BLACK
-                                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
-                            } else {
-                                // Ensure light status icons and transparent bar for main sections
-                                window.statusBarColor = android.graphics.Color.TRANSPARENT
-                                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = true
-                            }
+                            window.statusBarColor = android.graphics.Color.TRANSPARENT
+                            // If profile/overlay is open, we want dark icons on white status bar
+                            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = isProfileOverlayOpen || !isDarkStatusBar
                         }
 
-                        LaunchedEffect(multiplePermissionsState.allPermissionsGranted) {
+                        LaunchedEffect(multiplePermissionsState.allPermissionsGranted, context) {
                             if (multiplePermissionsState.allPermissionsGranted) {
                                 viewModel.startLocationUpdates(context)
                             } else {
@@ -146,16 +191,23 @@ class MainActivity : ComponentActivity() {
 
                         Scaffold(
                             modifier = Modifier.fillMaxSize(),
-                            containerColor = if (isDarkStatusBar) Color.Black else BgLight,
-                            topBar = { if (!isDarkStatusBar) GlassStatusBarHeader() },
-                            bottomBar = { AppBottomNavigation(selectedTab) { selectedTab = it } }
+                            containerColor = if (isProfileOverlayOpen) Color.White else (if (isDarkStatusBar) Color.Black else BgLight),
+                            bottomBar = { 
+                                AppBottomNavigation(selectedTab, isDark = isDarkStatusBar) { 
+                                    selectedTab = it 
+                                    if (isProfileOverlayOpen) {
+                                        selectedCreatorUid = null
+                                        isSavedPostsOpen = false
+                                        isNotificationsPageOpen = false
+                                    }
+                                } 
+                            }
                         ) { innerPadding ->
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .then(
-                                        if (isDarkStatusBar) {
-                                            // Skip top padding to ensure video fills the status bar area
+                                        if (isDarkStatusBar || isProfileOverlayOpen) {
                                             Modifier.padding(bottom = innerPadding.calculateBottomPadding())
                                         } else {
                                             Modifier.padding(innerPadding)
@@ -169,7 +221,12 @@ class MainActivity : ComponentActivity() {
                                             onToggleAlarm = { viewModel.toggleAlarm(context, it) },
                                             onNavigateToTracker = { selectedTab = "tracker" },
                                             onNavigateToQuran = { selectedTab = "quran" },
-                                            onNavigateToLocation = { selectedTab = "location" }
+                                            onNavigateToLocation = { selectedTab = "location" },
+                                            onOpenAlarmPage = { isAlarmPageOpen = true },
+                                            onNavigateToZakat = { isZakatPageOpen = true },
+                                            onNavigateToCalendar = { isCalendarPageOpen = true },
+                                            onNavigateToQibla = { isQiblaPageOpen = true },
+                                             onOpenNotificationsPage = { isNotificationsPageOpen = true }
                                         )
                                     } else if (selectedTab == "location") {
                                         LocationSelectionScreen(
@@ -179,7 +236,18 @@ class MainActivity : ComponentActivity() {
                                     } else if (selectedTab == "quran") {
                                         QuranScreen(onBack = { selectedTab = "home" })
                                     } else if (selectedTab == "video") {
-                                        VideoScreen()
+                                        VideoScreen(
+                                            activeSubTab = videoActiveSubTab,
+                                            onActiveSubTabChange = { videoActiveSubTab = it },
+                                            onRequireLogin = { selectedTab = "create" },
+                                            onNavigateToCreatorProfile = { uid, name ->
+                                                selectedCreatorUid = uid
+                                                selectedCreatorName = name
+                                            },
+                                            onNavigateToSaved = {
+                                                isSavedPostsOpen = true
+                                            }
+                                        )
                                     } else if (selectedTab == "create") {
                                         val currentUser = FirebaseAuth.getInstance().currentUser
                                         if (currentUser == null) {
@@ -208,7 +276,8 @@ class MainActivity : ComponentActivity() {
                                     } else if (selectedTab == "profile") {
                                         ProfileScreen(
                                             onNavigateToTracker = { selectedTab = "tracker" },
-                                            onNavigateToSettings = { selectedTab = "settings" }
+                                            onNavigateToSettings = { selectedTab = "settings" },
+                                            onNavigateToSaved = { isSavedPostsOpen = true }
                                         )
                                     } else if (selectedTab == "settings") {
                                         SettingsScreen(
@@ -223,6 +292,74 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     PermissionScreen(onRequestPermission = { multiplePermissionsState.launchMultiplePermissionRequest() })
                                 }
+                                
+                                // Overlay status bar header purely for visual gradient, without padding the content below
+                                if (!isDarkStatusBar && selectedCreatorUid == null) {
+                                    GlassStatusBarHeader()
+                                }
+
+                                // Full Screen Overlays
+                                if (selectedCreatorUid != null) {
+                                    CreatorProfileScreen(
+                                        creatorUid = selectedCreatorUid!!,
+                                        creatorName = selectedCreatorName,
+                                        onBack = { 
+                                            selectedCreatorUid = null 
+                                            // Reset status bar icons when coming back
+                                            (view.context as android.app.Activity).window.statusBarColor = android.graphics.Color.TRANSPARENT
+                                            WindowCompat.getInsetsController((view.context as android.app.Activity).window, view).isAppearanceLightStatusBars = !isDarkStatusBar
+                                        },
+                                        onVideoClick = { video ->
+                                            selectedCreatorUid = null
+                                            selectedTab = "video"
+                                            videoActiveSubTab = "home"
+                                            (view.context as android.app.Activity).window.statusBarColor = android.graphics.Color.TRANSPARENT
+                                            WindowCompat.getInsetsController((view.context as android.app.Activity).window, view).isAppearanceLightStatusBars = false
+                                        }
+                                    )
+                                }
+
+                                if (isSavedPostsOpen) {
+                                    SavedPostsScreen(
+                                        onBack = {
+                                            isSavedPostsOpen = false
+                                        },
+                                        onVideoClick = { video ->
+                                            isSavedPostsOpen = false
+                                            selectedTab = "video"
+                                            videoActiveSubTab = "home"
+                                            // Logic to play this specific video would go here if pager index was shared
+                                            (view.context as android.app.Activity).window.statusBarColor = android.graphics.Color.TRANSPARENT
+                                            WindowCompat.getInsetsController((view.context as android.app.Activity).window, view).isAppearanceLightStatusBars = false
+                                        }
+                                    )
+                                }
+
+                                if (isAlarmPageOpen) {
+                                    AlarmSetupScreen(
+                                        onBack = { isAlarmPageOpen = false }
+                                    )
+                                }
+                                if (isZakatPageOpen) {
+                                    ZakatCalculatorScreen(
+                                        onBack = { isZakatPageOpen = false }
+                                    )
+                                }
+                                if (isCalendarPageOpen) {
+                                    CalendarScreen(
+                                        onBack = { isCalendarPageOpen = false }
+                                    )
+                                }
+                                if (isNotificationsPageOpen) {
+                                     NotificationsScreen(
+                                         onBack = { isNotificationsPageOpen = false }
+                                     )
+                                 }
+                                 if (isQiblaPageOpen) {
+                                    QiblaCompassScreen(
+                                        onBack = { isQiblaPageOpen = false }
+                                    )
+                                }
                             }
                         }
                     }
@@ -234,52 +371,88 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun GlassStatusBarHeader() {
-    Box(
+    Spacer(
         modifier = Modifier
             .fillMaxWidth()
+            .windowInsetsTopHeight(WindowInsets.statusBars)
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xCCFFFFFF), // Very light translucent white for frost effect
-                        Color(0x4DE0F2FE)  // Extremely subtle pale sky blue tint (30% opacity)
+                        Color.White.copy(alpha = 0.9f),
+                        Color.Transparent
                     )
                 )
             )
-            .border(
-                width = 0.5.dp,
-                color = Color.White.copy(alpha = 0.6f)
-            )
-            .statusBarsPadding()
     )
 }
 
 @Composable
-fun AppBottomNavigation(selectedTab: String, onTabSelected: (String) -> Unit) {
-    NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
+fun AppBottomNavigation(selectedTab: String, isDark: Boolean, onTabSelected: (String) -> Unit) {
+    val navContainerColor = Color.White
+    val navUnselectedColor = TextGray
+
+    NavigationBar(
+        containerColor = navContainerColor,
+        tonalElevation = 4.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(68.dp)
+            .navigationBarsPadding()
+    ) {
         NavigationBarItem(
             selected = selectedTab == "home",
             onClick = { onTabSelected("home") },
-            icon = { Icon(if (selectedTab == "home") Icons.Default.Home else Icons.Outlined.Home, contentDescription = "Home") },
-            label = { Text(LocalAppStrings.current.home, fontWeight = if (selectedTab == "home") FontWeight.Bold else FontWeight.Normal) },
+            icon = { 
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (selectedTab == "home") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (selectedTab == "home") Icons.Default.Home else Icons.Outlined.Home, 
+                        contentDescription = "Home",
+                        modifier = Modifier.size(24.dp)
+                    ) 
+                }
+            },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = PrimaryGreen,
                 selectedTextColor = PrimaryGreen,
-                indicatorColor = PrimaryGreen.copy(alpha = 0.1f),
-                unselectedIconColor = TextGray,
-                unselectedTextColor = TextGray
+                indicatorColor = Color.Transparent,
+                unselectedIconColor = navUnselectedColor,
+                unselectedTextColor = navUnselectedColor
             )
         )
         NavigationBarItem(
             selected = selectedTab == "video",
             onClick = { onTabSelected("video") },
-            icon = { Icon(if (selectedTab == "video") Icons.Filled.PlayCircle else Icons.Outlined.PlayCircle, contentDescription = "Video") },
-            label = { Text(LocalAppStrings.current.video, fontWeight = if (selectedTab == "video") FontWeight.Bold else FontWeight.Normal) },
+            icon = { 
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (selectedTab == "video") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (selectedTab == "video") Icons.Filled.PlayCircle else Icons.Outlined.PlayCircle, 
+                        contentDescription = "Video",
+                        modifier = Modifier.size(24.dp)
+                    ) 
+                }
+            },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = PrimaryGreen,
                 selectedTextColor = PrimaryGreen,
-                indicatorColor = PrimaryGreen.copy(alpha = 0.1f),
-                unselectedIconColor = TextGray, 
-                unselectedTextColor = TextGray
+                indicatorColor = Color.Transparent,
+                unselectedIconColor = navUnselectedColor, 
+                unselectedTextColor = navUnselectedColor
             )
         )
         NavigationBarItem(
@@ -288,51 +461,83 @@ fun AppBottomNavigation(selectedTab: String, onTabSelected: (String) -> Unit) {
             icon = {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(if (selectedTab == "create") PrimaryGreen else TextGray.copy(alpha = 0.15f), CircleShape),
+                        .size(42.dp)
+                        .background(if (selectedTab == "create") PrimaryGreen else navUnselectedColor.copy(alpha = 0.15f), CircleShape)
+                        .then(
+                            if (selectedTab == "create") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "তৈরি",
-                        tint = if (selectedTab == "create") Color.White else TextGray,
-                        modifier = Modifier.size(22.dp)
+                        tint = if (selectedTab == "create") Color.White else navUnselectedColor,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             },
-            label = { Text(LocalAppStrings.current.create, fontWeight = if (selectedTab == "create") FontWeight.Bold else FontWeight.Normal) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = Color.White,
                 selectedTextColor = PrimaryGreen,
                 indicatorColor = Color.Transparent,
-                unselectedIconColor = TextGray,
-                unselectedTextColor = TextGray
+                unselectedIconColor = navUnselectedColor,
+                unselectedTextColor = navUnselectedColor
             )
         )
         NavigationBarItem(
             selected = selectedTab == "tracker",
             onClick = { onTabSelected("tracker") },
-            icon = { Icon(if (selectedTab == "tracker") Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle, contentDescription = "Tracker") },
-            label = { Text(LocalAppStrings.current.tracker, fontWeight = if (selectedTab == "tracker") FontWeight.Bold else FontWeight.Normal) },
+            icon = { 
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (selectedTab == "tracker") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (selectedTab == "tracker") Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle, 
+                        contentDescription = "Tracker",
+                        modifier = Modifier.size(24.dp)
+                    ) 
+                }
+            },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = PrimaryGreen,
                 selectedTextColor = PrimaryGreen,
-                indicatorColor = PrimaryGreen.copy(alpha = 0.1f),
-                unselectedIconColor = TextGray,
-                unselectedTextColor = TextGray
+                indicatorColor = Color.Transparent,
+                unselectedIconColor = navUnselectedColor,
+                unselectedTextColor = navUnselectedColor
             )
         )
         NavigationBarItem(
             selected = selectedTab == "profile",
             onClick = { onTabSelected("profile") },
-            icon = { Icon(if (selectedTab == "profile") Icons.Filled.Person else Icons.Outlined.Person, contentDescription = "Profile") },
-            label = { Text(LocalAppStrings.current.profile, fontWeight = if (selectedTab == "profile") FontWeight.Bold else FontWeight.Normal) },
+            icon = { 
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (selectedTab == "profile") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (selectedTab == "profile") Icons.Filled.Person else Icons.Outlined.Person, 
+                        contentDescription = "Profile",
+                        modifier = Modifier.size(24.dp)
+                    ) 
+                }
+            },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = PrimaryGreen,
                 selectedTextColor = PrimaryGreen,
-                indicatorColor = PrimaryGreen.copy(alpha = 0.1f),
-                unselectedIconColor = TextGray,
-                unselectedTextColor = TextGray
+                indicatorColor = Color.Transparent,
+                unselectedIconColor = navUnselectedColor,
+                unselectedTextColor = navUnselectedColor
             )
         )
     }
@@ -368,7 +573,12 @@ fun HomeScreen(
     onToggleAlarm: (String) -> Unit, 
     onNavigateToTracker: () -> Unit,
     onNavigateToQuran: () -> Unit,
-    onNavigateToLocation: () -> Unit
+    onNavigateToLocation: () -> Unit,
+    onOpenAlarmPage: () -> Unit,
+    onNavigateToZakat: () -> Unit,
+    onNavigateToCalendar: () -> Unit,
+    onNavigateToQibla: () -> Unit,
+    onOpenNotificationsPage: () -> Unit
 ) {
     if (state.isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -398,7 +608,7 @@ fun HomeScreen(
                 }
                 Text(state.currentDate, color = TextGray, fontSize = 12.sp, modifier = Modifier.padding(top=2.dp))
             }
-            IconButton(onClick = {}) {
+            IconButton(onClick = onOpenNotificationsPage) {
                 Icon(Icons.Outlined.Notifications, contentDescription = "Notifications", tint = TextDark)
             }
         }
@@ -501,11 +711,25 @@ fun HomeScreen(
                 
                 // Show current/next prayer if not expanded, or all if expanded
                 if (!expanded) {
-                    val nextP = prayers.find { it.first == state.nextPrayerName } ?: prayers[0]
-                    PrayerRow(nextP.second, nextP.third, state.alarms[nextP.first] == true, isActive = true) { onToggleAlarm(nextP.first) }
+                    val currentP = prayers.find { it.first == state.currentPrayerName } ?: (prayers.find { it.first == state.nextPrayerName } ?: prayers[0])
+                    PrayerRow(
+                        currentP.second, 
+                        currentP.third, 
+                        state.alarms[currentP.first] == true, 
+                        isActive = true, 
+                        onToggleAlarm = { onToggleAlarm(currentP.first) },
+                        onOpenAlarmPage = onOpenAlarmPage
+                    )
                 } else {
                     prayers.forEach { p ->
-                        PrayerRow(p.second, p.third, state.alarms[p.first] == true, isActive = p.first == state.nextPrayerName) { onToggleAlarm(p.first) }
+                        PrayerRow(
+                            p.second, 
+                            p.third, 
+                            state.alarms[p.first] == true, 
+                            isActive = p.first == state.currentPrayerName, 
+                            onToggleAlarm = { onToggleAlarm(p.first) },
+                            onOpenAlarmPage = onOpenAlarmPage
+                        )
                     }
                 }
 
@@ -531,7 +755,25 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Grid Categories
-        CategoryGrid(onNavigateToTracker, onNavigateToQuran)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            color = Color.White,
+            shape = RoundedCornerShape(16.dp),
+            shadowElevation = 0.5.dp,
+            border = BorderStroke(1.dp, Color(0xFFF3F4F6))
+        ) {
+            Column(modifier = Modifier.padding(top = 16.dp)) {
+        CategoryGrid(
+                    onNavigateToTracker, 
+                    onNavigateToQuran,
+                    onNavigateToZakat,
+                    onNavigateToCalendar,
+                    onNavigateToQibla
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -543,9 +785,9 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(12.dp))
         
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            ForbiddenTimeCard(LocalAppStrings.current.sunrise, "০৫:১১ এএম", "০৫:২৩ এএম", Icons.Outlined.WbTwilight)
-            ForbiddenTimeCard(LocalAppStrings.current.noon, "১১:৪৯ এএম", "১২:০৪ পিএম", Icons.Outlined.WbSunny)
-            ForbiddenTimeCard(LocalAppStrings.current.sunset, "০৬:১০ পিএম", "০৬:২৩ পিএম", Icons.Outlined.WbTwilight)
+            ForbiddenTimeCard(LocalAppStrings.current.sunrise, state.forbiddenSunrise, state.forbiddenSunriseEnd, Icons.Outlined.WbTwilight)
+            ForbiddenTimeCard(LocalAppStrings.current.noon, state.forbiddenNoon, state.forbiddenNoonEnd, Icons.Outlined.WbSunny)
+            ForbiddenTimeCard(LocalAppStrings.current.sunset, state.forbiddenSunset, state.forbiddenSunsetEnd, Icons.Outlined.WbTwilight)
         }
 
         Spacer(modifier = Modifier.height(40.dp))
@@ -575,9 +817,21 @@ fun SubInfoItemProgress(title: String, time: String, progress: String) {
 }
 
 @Composable
-fun PrayerRow(name: String, time: String, isAlarmOn: Boolean, isActive: Boolean, onToggle: () -> Unit) {
+fun PrayerRow(
+    name: String, 
+    time: String, 
+    isAlarmOn: Boolean, 
+    isActive: Boolean, 
+    onToggleAlarm: () -> Unit,
+    onOpenAlarmPage: () -> Unit
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(if(isActive) PrimaryGreen.copy(alpha=0.08f) else Color.Transparent, RoundedCornerShape(8.dp)).padding(horizontal=8.dp, vertical=8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .background(if(isActive) PrimaryGreen.copy(alpha=0.08f) else Color.Transparent, RoundedCornerShape(8.dp))
+            .padding(horizontal=8.dp, vertical=8.dp)
+            .clickable { onOpenAlarmPage() },
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -589,7 +843,7 @@ fun PrayerRow(name: String, time: String, isAlarmOn: Boolean, isActive: Boolean,
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(time.toBengali(), color = TextDark, fontSize = 14.sp, fontWeight=if(isActive) FontWeight.Bold else FontWeight.Medium)
             Spacer(modifier = Modifier.width(16.dp))
-            IconButton(onClick = onToggle, modifier = Modifier.size(24.dp)) {
+            IconButton(onClick = onToggleAlarm, modifier = Modifier.size(24.dp)) {
                  Icon(
                      if (isAlarmOn) Icons.Default.NotificationsActive else Icons.Outlined.Notifications,
                      contentDescription = "Alarm",
@@ -602,7 +856,13 @@ fun PrayerRow(name: String, time: String, isAlarmOn: Boolean, isActive: Boolean,
 }
 
 @Composable
-fun CategoryGrid(onNavigateToTracker: () -> Unit, onNavigateToQuran: () -> Unit) {
+fun CategoryGrid(
+    onNavigateToTracker: () -> Unit, 
+    onNavigateToQuran: () -> Unit,
+    onNavigateToZakat: () -> Unit,
+    onNavigateToCalendar: () -> Unit,
+    onNavigateToQibla: () -> Unit
+) {
     val items = if (GlobalLanguage.isEnglish) {
         listOf(
             Triple("Al Quran", Icons.Outlined.MenuBook, Color(0xFF10B981)),
@@ -635,9 +895,9 @@ fun CategoryGrid(onNavigateToTracker: () -> Unit, onNavigateToQuran: () -> Unit)
         )
     }
 
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+    Column {
         for (row in 0..2) {
-            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 for (col in 0..3) {
                     val index = row * 4 + col
                     val item = items[index]
@@ -652,14 +912,20 @@ fun CategoryGrid(onNavigateToTracker: () -> Unit, onNavigateToQuran: () -> Unit)
                                     onNavigateToTracker()
                                 } else if (item.first == "আল কুরআন" || item.first == "Al Quran") {
                                     onNavigateToQuran()
+                                } else if (item.first == "যাকাত" || item.first == "Zakat") {
+                                    onNavigateToZakat()
+                                } else if (item.first == "ক্যালেন্ডার" || item.first == "Calendar") {
+                                    onNavigateToCalendar()
+                                } else if (item.first == "কিবলা" || item.first == "Qibla") {
+                                    onNavigateToQibla()
                                 }
                             }
                     ) {
                         Box(
-                            modifier = Modifier.size(52.dp).background(item.third.copy(alpha=0.15f), CircleShape),
+                            modifier = Modifier.size(52.dp).background(item.third, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(item.second, contentDescription = item.first, tint = item.third, modifier = Modifier.size(24.dp))
+                            Icon(item.second, contentDescription = item.first, tint = Color.White, modifier = Modifier.size(24.dp))
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(item.first, color = TextDark, fontSize = 11.sp, textAlign = TextAlign.Center, lineHeight=14.sp)

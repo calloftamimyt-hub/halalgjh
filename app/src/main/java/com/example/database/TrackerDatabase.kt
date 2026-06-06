@@ -20,6 +20,36 @@ data class DailyTracker(
     val parents: Boolean = false
 )
 
+@Entity(tableName = "saved_posts")
+data class SavedPost(
+    @PrimaryKey val docId: String,
+    val author: String,
+    val description: String,
+    val category: String,
+    val status: String,
+    val userId: String,
+    val telegramFileId: String,
+    val viewsCount: Long,
+    val sharesCount: Long,
+    val title: String,
+    val videoUri: String,
+    val url: String
+)
+
+@Entity(tableName = "notifications")
+data class NotificationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val body: String,
+    val timestamp: Long,
+    val isRead: Boolean = false,
+    val type: String, // "LIKE", "SHARE", "VIDEO", "REACTION", "COMMENT", "GENERAL"
+    val actorName: String,
+    val actorAvatar: String = "",
+    val itemType: String = "", // "reel", "photo", "post" etc.
+    val itemTitle: String = "" // text of reel/photo/post
+)
+
 @Dao
 interface TrackerDao {
     @Query("SELECT * FROM daily_tracker WHERE date = :date")
@@ -35,9 +65,44 @@ interface TrackerDao {
     fun getAllHistory(): Flow<List<DailyTracker>>
 }
 
-@Database(entities = [DailyTracker::class], version = 1, exportSchema = false)
+@Dao
+interface SavedPostDao {
+    @Query("SELECT * FROM saved_posts")
+    fun getAllSavedPosts(): Flow<List<SavedPost>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun savePost(post: SavedPost)
+
+    @Delete
+    suspend fun deletePost(post: SavedPost)
+    
+    @Query("SELECT * FROM saved_posts WHERE docId = :docId")
+    suspend fun getPostById(docId: String): SavedPost?
+}
+
+@Dao
+interface NotificationDao {
+    @Query("SELECT * FROM notifications ORDER BY timestamp DESC")
+    fun getAllNotifications(): Flow<List<NotificationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotification(notification: NotificationEntity)
+
+    @Update
+    suspend fun updateNotification(notification: NotificationEntity)
+
+    @Query("DELETE FROM notifications WHERE id = :id")
+    suspend fun deleteNotificationById(id: Int)
+
+    @Query("UPDATE notifications SET isRead = 1")
+    suspend fun markAllAsRead()
+}
+
+@Database(entities = [DailyTracker::class, SavedPost::class, NotificationEntity::class], version = 3, exportSchema = false)
 abstract class TrackerDatabase : RoomDatabase() {
     abstract fun trackerDao(): TrackerDao
+    abstract fun savedPostDao(): SavedPostDao
+    abstract fun notificationDao(): NotificationDao
 
     companion object {
         @Volatile
