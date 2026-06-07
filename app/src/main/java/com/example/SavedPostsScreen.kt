@@ -109,6 +109,9 @@ fun SavedPostsScreen(
                     items(savedVideos) { video ->
                         CreatorVideoThumbnail(
                             video = video,
+                            isMyProfile = false,
+                            onEditClick = {},
+                            onDeleteClick = {},
                             onClick = { onVideoClick(video) }
                         )
                     }

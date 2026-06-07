@@ -43,11 +43,12 @@ data class NotificationEntity(
     val body: String,
     val timestamp: Long,
     val isRead: Boolean = false,
-    val type: String, // "LIKE", "SHARE", "VIDEO", "REACTION", "COMMENT", "GENERAL"
+    val type: String, // "LIKE", "SHARE", "VIDEO", "REACTION", "COMMENT", "GENERAL", "FOLLOW", "UNFOLLOW"
     val actorName: String,
     val actorAvatar: String = "",
     val itemType: String = "", // "reel", "photo", "post" etc.
-    val itemTitle: String = "" // text of reel/photo/post
+    val itemTitle: String = "", // text of reel/photo/post
+    val remoteId: String = "" // Firestore doc id
 )
 
 @Dao
@@ -96,13 +97,53 @@ interface NotificationDao {
 
     @Query("UPDATE notifications SET isRead = 1")
     suspend fun markAllAsRead()
+
+    @Query("DELETE FROM notifications")
+    suspend fun deleteAllNotifications()
+
+    @Query("SELECT COUNT(*) FROM notifications WHERE remoteId = :remoteId")
+    suspend fun countByRemoteId(remoteId: String): Int
 }
 
-@Database(entities = [DailyTracker::class, SavedPost::class, NotificationEntity::class], version = 3, exportSchema = false)
+@Entity(tableName = "user_alarms")
+data class UserAlarm(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val hour: Int,
+    val minute: Int,
+    val amPm: String, // "AM" or "PM"
+    val days: String, // comma separated days e.g. "Mon,Tue" or "Once"
+    val deleteAfterRinging: Boolean = false,
+    val sound: String = "Default",
+    val label: String = "",
+    val snooze: String = "10 min, 3 times",
+    val vibrate: Boolean = true,
+    val isEnabled: Boolean = true
+)
+
+@Dao
+interface UserAlarmDao {
+    @Query("SELECT * FROM user_alarms ORDER BY hour ASC, minute ASC")
+    fun getAllAlarms(): Flow<List<UserAlarm>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAlarm(alarm: UserAlarm): Long
+
+    @Update
+    suspend fun updateAlarm(alarm: UserAlarm)
+
+    @Delete
+    suspend fun deleteAlarm(alarm: UserAlarm)
+
+    @Query("DELETE FROM user_alarms WHERE id = :id")
+    suspend fun deleteAlarmById(id: Int)
+}
+
+@Database(entities = [DailyTracker::class, SavedPost::class, NotificationEntity::class, UserAlarm::class], version = 4, exportSchema = false)
 abstract class TrackerDatabase : RoomDatabase() {
     abstract fun trackerDao(): TrackerDao
     abstract fun savedPostDao(): SavedPostDao
     abstract fun notificationDao(): NotificationDao
+    abstract fun alarmDao(): UserAlarmDao
 
     companion object {
         @Volatile

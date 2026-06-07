@@ -192,62 +192,23 @@ fun CreateVideoScreen(
     }
 
     if (!permissionState.allPermissionsGranted) {
-        // Require Permission Screen
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0F172A))
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        LaunchedEffect(Unit) {
+            permissionState.launchMultiplePermissionRequest()
+        }
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color(0xFF0F172A)),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(Color(0xFF10B981).copy(alpha = 0.15f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = null,
-                    tint = Color(0xFF10B981),
-                    modifier = Modifier.size(44.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "ভিডিও ক্যামেরা পারমিশন",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "ইন-অ্যাপ ভিডিও রেকর্ড করতে ক্যামেরা এবং অডিও রেকর্ডিং পারমিশন প্রয়োজন।",
-                fontSize = 14.sp,
-                color = Color(0xFF94A3B8),
-                textAlign = TextAlign.Center,
-                lineHeight = 20.sp
-            )
-            Spacer(modifier = Modifier.height(40.dp))
-            Button(
-                onClick = { permissionState.launchMultiplePermissionRequest() },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "অনুমতি দিন",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    text = "ক্যামেরা এবং মাইক্রোফোন পারমিশন চাচ্ছে...",
+                    color = Color.White,
+                    fontSize = 16.sp
                 )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            TextButton(onClick = onBack) {
-                Text(text = "ফিরে যান", color = Color(0xFF94A3B8), fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+                TextButton(onClick = onBack) {
+                    Text(text = "ফিরে যান", color = Color(0xFF94A3B8), fontSize = 14.sp)
+                }
             }
         }
     } else {

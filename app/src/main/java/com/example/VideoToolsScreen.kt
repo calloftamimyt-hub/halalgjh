@@ -47,7 +47,7 @@ fun VideoToolsScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White),
-        contentPadding = PaddingValues(top = 110.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
+        contentPadding = PaddingValues(top = 95.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Main Screen Header

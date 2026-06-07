@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -44,6 +45,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
 import com.google.accompanist.permissions.*
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.*
 
 
 class MainActivity : ComponentActivity() {
@@ -146,6 +151,69 @@ class MainActivity : ComponentActivity() {
                             viewModel.loadSettings(context)
                         }
 
+                        // Notification Sync Logic
+                        LaunchedEffect(context) {
+                            val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+                            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                            val trackerDb = com.example.database.TrackerDatabase.getDatabase(context)
+                            val notificationDao = trackerDb.notificationDao()
+
+                            auth.addAuthStateListener { firebaseAuth ->
+                                val user = firebaseAuth.currentUser
+                                if (user != null) {
+                                    db.collection("remote_notifications")
+                                        .whereEqualTo("toId", user.uid)
+                                        .addSnapshotListener { snapshots, e ->
+                                            if (e != null) return@addSnapshotListener
+                                            if (snapshots != null) {
+                                                CoroutineScope(Dispatchers.IO).launch {
+                                                    for (doc in snapshots.documentChanges) {
+                                                        if (doc.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
+                                                            val remoteId = doc.document.id
+                                                            if (notificationDao.countByRemoteId(remoteId) == 0) {
+                                                                val data = doc.document.data
+                                                                val entity = com.example.database.NotificationEntity(
+                                                                    title = data["title"] as? String ?: "Notification",
+                                                                    body = data["body"] as? String ?: "",
+                                                                    timestamp = data["timestamp"] as? Long ?: System.currentTimeMillis(),
+                                                                    type = data["type"] as? String ?: "GENERAL",
+                                                                    actorName = data["actorName"] as? String ?: "Someone",
+                                                                    remoteId = remoteId
+                                                                )
+                                                                notificationDao.insertNotification(entity)
+                                                                
+                                                                // Show local push notification
+                                                                val ctx = context
+                                                                val notifManager = ctx.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                                                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                                                    val channel = android.app.NotificationChannel("halal_circle_notifs", "General Notifications", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                                                                    notifManager.createNotificationChannel(channel)
+                                                                }
+                                                                val notifyIntent = Intent(ctx, MainActivity::class.java).apply {
+                                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                                                    putExtra("open_notifications", true)
+                                                                }
+                                                                val notifyPendingIntent = android.app.PendingIntent.getActivity(
+                                                                    ctx, 0, notifyIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                                                                )
+                                                                val builder = androidx.core.app.NotificationCompat.Builder(ctx, "halal_circle_notifs")
+                                                                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                                                                    .setContentTitle(entity.title)
+                                                                    .setContentText(entity.body)
+                                                                    .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                                                                    .setAutoCancel(true)
+                                                                    .setContentIntent(notifyPendingIntent)
+                                                                notifManager.notify(remoteId.hashCode(), builder.build())
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                }
+                            }
+                        }
+
                         val permissions = remember {
                             val list = mutableListOf(
                                 Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -164,21 +232,51 @@ class MainActivity : ComponentActivity() {
                         var selectedCreatorUid by remember { mutableStateOf<String?>(null) }
                         var selectedCreatorName by remember { mutableStateOf("") }
                         var isSavedPostsOpen by remember { mutableStateOf(false) }
+                        var isFriendsPageOpen by remember { mutableStateOf(false) }
                         var isAlarmPageOpen by remember { mutableStateOf(false) }
                         var isZakatPageOpen by remember { mutableStateOf(false) }
                         var isCalendarPageOpen by remember { mutableStateOf(false) }
                         var isQiblaPageOpen by remember { mutableStateOf(false) }
                         var isNotificationsPageOpen by remember { mutableStateOf(false) }
+                        var isAddAlarmPageOpen by remember { mutableStateOf(false) }
+                        
+                        val alarmViewModel: com.example.viewmodel.AlarmViewModel = remember { 
+                            com.example.viewmodel.AlarmViewModel(context) 
+                        }
+                        val userAlarms by alarmViewModel.alarms.collectAsState()
+
+                        val activity = LocalContext.current as? androidx.activity.ComponentActivity
+                        LaunchedEffect(activity?.intent) {
+                            if (activity?.intent?.getBooleanExtra("open_notifications", false) == true) {
+                                isNotificationsPageOpen = true
+                                activity?.intent?.removeExtra("open_notifications")
+                            }
+                        }
+                        DisposableEffect(activity) {
+                            val listener = androidx.core.util.Consumer<Intent> { newIntent ->
+                                if (newIntent.getBooleanExtra("open_notifications", false)) {
+                                    isNotificationsPageOpen = true
+                                    newIntent.removeExtra("open_notifications")
+                                }
+                            }
+                            activity?.addOnNewIntentListener(listener)
+                            onDispose {
+                                activity?.removeOnNewIntentListener(listener)
+                            }
+                        }
 
                         val view = LocalView.current
-                        val isProfileOverlayOpen = selectedCreatorUid != null || isSavedPostsOpen || isAlarmPageOpen || isZakatPageOpen || isCalendarPageOpen || isQiblaPageOpen || isNotificationsPageOpen
-                        val isDarkStatusBar = ((selectedTab == "video" && videoActiveSubTab == "home") || selectedTab == "create") && !isProfileOverlayOpen
+                        val isProfileOverlayOpen = selectedCreatorUid != null || isSavedPostsOpen || isFriendsPageOpen || isAlarmPageOpen || isZakatPageOpen || isCalendarPageOpen || isQiblaPageOpen || isNotificationsPageOpen || isAddAlarmPageOpen
+                        val isDarkStatusBar = (selectedTab == "create") && !isProfileOverlayOpen && FirebaseAuth.getInstance().currentUser != null
+                        val isAuthPage = (selectedTab == "create") && FirebaseAuth.getInstance().currentUser == null
                         
-                        LaunchedEffect(isDarkStatusBar, isProfileOverlayOpen, view) {
+                        LaunchedEffect(isDarkStatusBar, isProfileOverlayOpen, isAuthPage, view) {
                             val window = (view.context as Activity).window
                             window.statusBarColor = android.graphics.Color.TRANSPARENT
-                            // If profile/overlay is open, we want dark icons on white status bar
-                            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = isProfileOverlayOpen || !isDarkStatusBar
+                            window.navigationBarColor = android.graphics.Color.WHITE
+                            // If profile/overlay is open, or on Auth page, we want dark icons on white/transparent status bar
+                            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = isProfileOverlayOpen || isAuthPage || !isDarkStatusBar
+                            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = true
                         }
 
                         LaunchedEffect(multiplePermissionsState.allPermissionsGranted, context) {
@@ -214,8 +312,13 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                             ) {
-                                if (multiplePermissionsState.allPermissionsGranted || !state.isAutoLocation) {
-                                    if (selectedTab == "home") {
+                                LaunchedEffect(Unit) {
+                                    if (!multiplePermissionsState.allPermissionsGranted && state.isAutoLocation) {
+                                        multiplePermissionsState.launchMultiplePermissionRequest()
+                                    }
+                                }
+
+                                if (selectedTab == "home") {
                                         HomeScreen(
                                             state = state,
                                             onToggleAlarm = { viewModel.toggleAlarm(context, it) },
@@ -246,7 +349,11 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onNavigateToSaved = {
                                                 isSavedPostsOpen = true
-                                            }
+                                            },
+                                            onNavigateToFriends = {
+                                                isFriendsPageOpen = true
+                                            },
+                                            isFeedActive = !isProfileOverlayOpen
                                         )
                                     } else if (selectedTab == "create") {
                                         val currentUser = FirebaseAuth.getInstance().currentUser
@@ -256,13 +363,13 @@ class MainActivity : ComponentActivity() {
                                                 LoginScreen(
                                                     onBack = { selectedTab = "home" },
                                                     onNavigateToRegister = { authTab = "register" },
-                                                    onLoginSuccess = { selectedTab = "create" }
+                                                    onLoginSuccess = { selectedTab = "home" }
                                                 )
                                             } else {
                                                 RegisterScreen(
                                                     onBack = { selectedTab = "home" },
                                                     onNavigateToLogin = { authTab = "login" },
-                                                    onRegisterSuccess = { selectedTab = "create" }
+                                                    onRegisterSuccess = { selectedTab = "home" }
                                                 )
                                             }
                                         } else {
@@ -289,9 +396,6 @@ class MainActivity : ComponentActivity() {
                                             Text("শীঘ্রই আসছে...", fontSize = 24.sp, color = TextGray)
                                         }
                                     }
-                                } else {
-                                    PermissionScreen(onRequestPermission = { multiplePermissionsState.launchMultiplePermissionRequest() })
-                                }
                                 
                                 // Overlay status bar header purely for visual gradient, without padding the content below
                                 if (!isDarkStatusBar && selectedCreatorUid == null) {
@@ -319,6 +423,10 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
+                                if (isFriendsPageOpen) {
+                                    FriendsScreen(onBack = { isFriendsPageOpen = false })
+                                }
+                                
                                 if (isSavedPostsOpen) {
                                     SavedPostsScreen(
                                         onBack = {
@@ -337,7 +445,17 @@ class MainActivity : ComponentActivity() {
 
                                 if (isAlarmPageOpen) {
                                     AlarmSetupScreen(
-                                        onBack = { isAlarmPageOpen = false }
+                                        onBack = { isAlarmPageOpen = false },
+                                        onAddAlarmClick = { isAddAlarmPageOpen = true },
+                                        alarms = userAlarms,
+                                        onToggleAlarm = { alarmViewModel.toggleAlarm(it) },
+                                        onDeleteAlarm = { alarmViewModel.deleteAlarm(it) }
+                                    )
+                                }
+                                if (isAddAlarmPageOpen) {
+                                    AddAlarmScreen(
+                                        onBack = { isAddAlarmPageOpen = false },
+                                        onSave = { alarmViewModel.addAlarm(it) }
                                     )
                                 }
                                 if (isZakatPageOpen) {
@@ -391,14 +509,19 @@ fun AppBottomNavigation(selectedTab: String, isDark: Boolean, onTabSelected: (St
     val navContainerColor = Color.White
     val navUnselectedColor = TextGray
 
-    NavigationBar(
-        containerColor = navContainerColor,
-        tonalElevation = 4.dp,
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(68.dp)
-            .navigationBarsPadding()
+            .background(Color.White)
     ) {
+        NavigationBar(
+            containerColor = navContainerColor,
+            tonalElevation = 4.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(68.dp)
+                .navigationBarsPadding()
+        ) {
         NavigationBarItem(
             selected = selectedTab == "home",
             onClick = { onTabSelected("home") },
@@ -441,7 +564,7 @@ fun AppBottomNavigation(selectedTab: String, isDark: Boolean, onTabSelected: (St
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (selectedTab == "video") Icons.Filled.PlayCircle else Icons.Outlined.PlayCircle, 
+                        imageVector = if (selectedTab == "video") Icons.Filled.OndemandVideo else Icons.Outlined.OndemandVideo, 
                         contentDescription = "Video",
                         modifier = Modifier.size(24.dp)
                     ) 
@@ -491,9 +614,9 @@ fun AppBottomNavigation(selectedTab: String, isDark: Boolean, onTabSelected: (St
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .clip(CircleShape)
+                        .clip(RoundedCornerShape(10.dp))
                         .then(
-                            if (selectedTab == "tracker") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
+                            if (selectedTab == "tracker") Modifier.border(2.dp, PrimaryGreen, RoundedCornerShape(10.dp)) else Modifier
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -519,9 +642,9 @@ fun AppBottomNavigation(selectedTab: String, isDark: Boolean, onTabSelected: (St
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .clip(CircleShape)
+                        .clip(RoundedCornerShape(10.dp))
                         .then(
-                            if (selectedTab == "profile") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
+                            if (selectedTab == "profile") Modifier.border(2.dp, PrimaryGreen, RoundedCornerShape(10.dp)) else Modifier
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -542,29 +665,6 @@ fun AppBottomNavigation(selectedTab: String, isDark: Boolean, onTabSelected: (St
         )
     }
 }
-
-@Composable
-fun PermissionScreen(onRequestPermission: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(Icons.Default.LocationOn, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(64.dp))
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("লোকেশন পারমিশন", style = MaterialTheme.typography.headlineMedium, color = TextDark, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("অফলাইনে নামাজের সময়সূচি সঠিকভাবে হিসাব করার জন্য লোকেশন পারমিশন প্রয়োজন।", style = MaterialTheme.typography.bodyLarge, color = TextGray, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(48.dp))
-        Button(
-            onClick = onRequestPermission,
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-            shape = RoundedCornerShape(100.dp),
-            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp)
-        ) {
-            Text("পারমিশন দিন", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
-        }
-    }
 }
 
 @Composable
@@ -594,7 +694,7 @@ fun HomeScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(start = 20.dp, end = 8.dp, top = 16.dp, bottom = 16.dp)
                 .clickable { onNavigateToLocation() },
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -608,14 +708,17 @@ fun HomeScreen(
                 }
                 Text(state.currentDate, color = TextGray, fontSize = 12.sp, modifier = Modifier.padding(top=2.dp))
             }
-            IconButton(onClick = onOpenNotificationsPage) {
+            IconButton(
+                onClick = onOpenNotificationsPage,
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
                 Icon(Icons.Outlined.Notifications, contentDescription = "Notifications", tint = TextDark)
             }
         }
 
         // Hero Section
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -628,27 +731,44 @@ fun HomeScreen(
             }
 
             // Circular Timer
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(180.dp).padding(8.dp)) {
-                // Background circle (the part to be filled) - User said Black/Green
-                CircularProgressIndicator(
-                    progress = { 1f },
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color.Black.copy(alpha = 0.8f),
-                    strokeWidth = 10.dp,
-                    strokeCap = StrokeCap.Round
-                )
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(140.dp).padding(4.dp)) {
                 // Foreground filling circle
                 CircularProgressIndicator(
                     progress = { state.timerProgress },
                     modifier = Modifier.fillMaxSize(),
                     color = PrimaryGreen,
-                    strokeWidth = 10.dp,
+                    strokeWidth = 8.dp,
                     strokeCap = StrokeCap.Round
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val nextLabel = if (state.nextPrayerRemaining.startsWith("০০:০০") || state.nextPrayerRemaining.startsWith("00:00")) LocalAppStrings.current.now else state.nextPrayerNameBen
-                    Text(nextLabel, color = TextDark, fontWeight = FontWeight.Bold, fontSize = 28.sp)
-                    Text(state.nextPrayerRemaining, color = PrimaryGreen, fontWeight = FontWeight.Bold, fontSize = 22.sp, modifier = Modifier.padding(top=4.dp))
+                    val displayNames = if (state.rotatingNames.isNotEmpty()) state.rotatingNames else listOf(state.currentPrayerNameBen.ifEmpty { state.nextPrayerNameBen })
+                    var currentIndex by remember(displayNames) { mutableIntStateOf(0) }
+                    LaunchedEffect(displayNames) {
+                        if (displayNames.size > 1) {
+                            while(true) {
+                                kotlinx.coroutines.delay(3000)
+                                currentIndex = (currentIndex + 1) % displayNames.size
+                            }
+                        } else {
+                            currentIndex = 0
+                        }
+                    }
+                    val currentTitle = if (displayNames.isNotEmpty()) displayNames[currentIndex % displayNames.size] else "..."
+                    
+                    AnimatedContent(
+                        targetState = currentTitle,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(600)) + slideInVertically { height -> height }).togetherWith(
+                                fadeOut(animationSpec = tween(600)) + slideOutVertically { height -> -height }
+                            )
+                        },
+                        label = "hero_title_rotation"
+                    ) { title ->
+                        Text(title, color = TextDark, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                    }
+                    
+                    Text(state.nextPrayerRemaining, color = PrimaryGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top=2.dp))
+                    Text(if (GlobalLanguage.isEnglish) "Time remaining" else "শেষ হতে বাকি", color = TextGray, fontSize = 11.sp, modifier = Modifier.padding(top=2.dp))
                 }
             }
 
@@ -662,129 +782,126 @@ fun HomeScreen(
         }
 
         // Sub info (Sehri / Iftar Countdown)
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            SubInfoItem(if (GlobalLanguage.isEnglish) "Next Tahajjud" else "পরবর্তী তাহাজ্জুদ", "০৩:৩৪ এএম".toBengali())
-            SubInfoItem(if (GlobalLanguage.isEnglish) "Next Ishraq" else "পরবর্তী ইশরাক", "০৬:৩০ এএম".toBengali())
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             SubInfoItemProgress(
                 title = state.specialCountdownLabel, 
                 time = state.specialCountdownTime, 
-                progress = "${(state.specialCountdownProgress * 100).toInt()}%".toBengali()
+                progress = "${(state.specialCountdownProgress * 100).toInt()}%".toBengali(),
+                isLarge = true
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            SubInfoItem(
+                title = if (GlobalLanguage.isEnglish) "Sehri Last Time" else "সাহরির শেষ সময়", 
+                time = state.prayerTimes?.fajr?.toBengali() ?: "--:--"
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Placeholder Banner
-        Box(
-            modifier = Modifier.fillMaxWidth().height(100.dp).padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(12.dp)).background(Color(0xFFE8F5E9)),
-            contentAlignment = Alignment.Center
+        // Prayer Times Section Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-             Row(verticalAlignment=Alignment.CenterVertically) {
-                 Icon(Icons.Default.MenuBook, contentDescription=null, tint=PrimaryGreen, modifier=Modifier.size(40.dp))
-                 Spacer(modifier=Modifier.width(16.dp))
-                 Column {
-                    Text("মাকামাল কুরআনিক মেসেজ", fontWeight=FontWeight.Bold, color=TextDark)
-                    Text("অনুবাদ ও তাফসীর জানতে পড়ুন", color=TextGray, fontSize=12.sp)
-                 }
-             }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Prayer Times List
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(LocalAppStrings.current.prayer_times_title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextDark)
-                Text(if (GlobalLanguage.isEnglish) "Set Alarm >" else "অ্যালার্ম সেট করুন >", color = PrimaryGreen, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-
-            var expanded by remember { mutableStateOf(false) }
-
-            state.prayerTimes?.let { times ->
-                val prayers = listOf(
-                    Triple("Fajr", "ফজর", times.fajr), Triple("Sunrise", "সূর্যোদয়", times.sunrise),
-                    Triple("Dhuhr", "যোহর", times.dhuhr), Triple("Asr", "আসর", times.asr),
-                    Triple("Maghrib", "মাগরিব", times.maghrib), Triple("Isha", "এশা", times.isha)
-                )
-                
-                // Show current/next prayer if not expanded, or all if expanded
-                if (!expanded) {
-                    val currentP = prayers.find { it.first == state.currentPrayerName } ?: (prayers.find { it.first == state.nextPrayerName } ?: prayers[0])
-                    PrayerRow(
-                        currentP.second, 
-                        currentP.third, 
-                        state.alarms[currentP.first] == true, 
-                        isActive = true, 
-                        onToggleAlarm = { onToggleAlarm(currentP.first) },
-                        onOpenAlarmPage = onOpenAlarmPage
-                    )
-                } else {
-                    prayers.forEach { p ->
-                        PrayerRow(
-                            p.second, 
-                            p.third, 
-                            state.alarms[p.first] == true, 
-                            isActive = p.first == state.currentPrayerName, 
-                            onToggleAlarm = { onToggleAlarm(p.first) },
-                            onOpenAlarmPage = onOpenAlarmPage
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).clickable { expanded = !expanded }.background(PrimaryGreen.copy(alpha=0.05f), RoundedCornerShape(20.dp)).padding(vertical=8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (expanded) LocalAppStrings.current.collapse else LocalAppStrings.current.see_all, color = PrimaryGreen, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = null, tint = PrimaryGreen)
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Categories Header
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(LocalAppStrings.current.categories, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextDark)
-            Text(if (GlobalLanguage.isEnglish) "See All >" else "সবগুলো >", color = PrimaryGreen, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(LocalAppStrings.current.prayer_times_title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextDark)
+            Text(
+                if (GlobalLanguage.isEnglish) "Set Alarm >" else "অ্যালার্ম সেট করুন >", 
+                color = PrimaryGreen, 
+                fontSize = 12.sp, 
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.clickable { onOpenAlarmPage() }
+            )
         }
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Grid Categories
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            color = Color.White,
-            shape = RoundedCornerShape(16.dp),
-            shadowElevation = 0.5.dp,
-            border = BorderStroke(1.dp, Color(0xFFF3F4F6))
-        ) {
-            Column(modifier = Modifier.padding(top = 16.dp)) {
-        CategoryGrid(
-                    onNavigateToTracker, 
-                    onNavigateToQuran,
-                    onNavigateToZakat,
-                    onNavigateToCalendar,
-                    onNavigateToQibla
+        Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+            state.prayerTimes?.let { times ->
+                val prayers = listOf(
+                    Quad("Fajr", if (GlobalLanguage.isEnglish) "Fajr" else "ফজর", times.fajr, times.sunrise),
+                    Quad("Dhuhr", if (GlobalLanguage.isEnglish) "Dhuhr" else "যোহর", times.dhuhr, times.asr),
+                    Quad("Asr", if (GlobalLanguage.isEnglish) "Asr" else "আসর", times.asr, times.maghrib),
+                    Quad("Maghrib", if (GlobalLanguage.isEnglish) "Maghrib" else "মাগরিব", times.maghrib, times.isha),
+                    Quad("Isha", if (GlobalLanguage.isEnglish) "Isha" else "এশা", times.isha, times.fajr)
                 )
+                
+                Column {
+                    prayers.forEachIndexed { index, p ->
+                        PrayerRow(
+                            p.name, 
+                            p.startTime, 
+                            p.endTime,
+                            isAlarmOn = state.alarms[p.id] == true, 
+                            isActive = p.id == state.currentPrayerName, 
+                            onToggleAlarm = { onToggleAlarm(p.id) },
+                            onOpenAlarmPage = onOpenAlarmPage
+                        )
+                        if (index < prayers.size - 1) {
+                            HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 4.dp))
+                        }
+                    }
+                }
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Categories Section Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(LocalAppStrings.current.categories, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextDark)
+            Text(if (GlobalLanguage.isEnglish) "See All >" else "সবগুলো >", color = PrimaryGreen, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Categories Grid
+        CategoryGrid(
+            onNavigateToTracker, 
+            onNavigateToQuran,
+            onNavigateToZakat,
+            onNavigateToCalendar,
+            onNavigateToQibla
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Nafl Salat Section
+        NaflSalatSection(state)
 
         Spacer(modifier = Modifier.height(24.dp))
 
         // Forbidden Times
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp), 
+            horizontalArrangement = Arrangement.SpaceBetween, 
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(LocalAppStrings.current.forbidden_times, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextDark)
             Icon(Icons.Outlined.Info, contentDescription = "Info", tint=TextGray, modifier=Modifier.size(18.dp))
         }
         Spacer(modifier = Modifier.height(12.dp))
         
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp), 
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             ForbiddenTimeCard(LocalAppStrings.current.sunrise, state.forbiddenSunrise, state.forbiddenSunriseEnd, Icons.Outlined.WbTwilight)
             ForbiddenTimeCard(LocalAppStrings.current.noon, state.forbiddenNoon, state.forbiddenNoonEnd, Icons.Outlined.WbSunny)
             ForbiddenTimeCard(LocalAppStrings.current.sunset, state.forbiddenSunset, state.forbiddenSunsetEnd, Icons.Outlined.WbTwilight)
@@ -795,23 +912,140 @@ fun HomeScreen(
 }
 
 @Composable
+fun NaflSalatSection(state: com.example.viewmodel.ViewState) {
+    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(if (GlobalLanguage.isEnglish) "Nafl Salat Times" else "নফল সালাতের সময়", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextDark)
+            Text(if (GlobalLanguage.isEnglish) "See Reference" else "রেফারেন্স দেখুন", color = PrimaryGreen, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        state.prayerTimes?.let { times ->
+             val sunriseHours = times.sunriseHours
+             val dhuhrHours = times.dhuhrHours
+             val chashtHours = sunriseHours + 15.0 / 60.0
+             val duhaHours = (chashtHours + dhuhrHours) / 2.0
+             
+             // Helper for formatting
+             val formatTime = { h: Double ->
+                val totalMin = (h * 60).toInt()
+                val hour = (totalMin / 60) % 24
+                val min = totalMin % 60
+                val p = if (hour >= 12) "পিএম" else "এএম"
+                val displayHour = if (hour > 12) hour - 12 else if (hour == 0) 12 else hour
+                String.format("%02d:%02d %s", displayHour, min, p).toBengali()
+             }
+             
+             val formatTimeRange = { start: Double, end: Double ->
+                val s = formatTime(start).replace(" এএম", "").replace(" পিএম", "").replace(" AM", "").replace(" PM", "")
+                val e = formatTime(end)
+                "$s - $e".toBengali()
+             }
+
+             // Duha
+             NaflSalatRow(
+                icon = Icons.Outlined.WbSunny,
+                name = if (GlobalLanguage.isEnglish) "Duha" else "দুহা",
+                time = "${if (GlobalLanguage.isEnglish) "Morning" else "সকাল"} ${formatTimeRange(chashtHours, dhuhrHours - 5.0/60.0)}"
+             )
+             
+             HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+             
+             // Zawal
+             NaflSalatRow(
+                icon = Icons.Outlined.LocationOn,
+                name = if (GlobalLanguage.isEnglish) "Zawal Start" else "যাওয়াল শুরু",
+                time = "${if (GlobalLanguage.isEnglish) "Noon" else "দুপুর"} ${formatTime(dhuhrHours)}"
+             )
+
+             HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+
+             // Awwabin
+             NaflSalatRow(
+                icon = Icons.Outlined.WbTwilight,
+                name = if (GlobalLanguage.isEnglish) "Awwabin" else "আওয়াবিন",
+                time = "${if (GlobalLanguage.isEnglish) "After Maghrib" else "মাগরিবের পর"} - ${if (GlobalLanguage.isEnglish) "Evening" else "সন্ধ্যা"} ${times.maghrib.toBengali()}"
+             )
+
+             HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
+
+             // Tahajjud
+             NaflSalatRow(
+                icon = Icons.Outlined.DarkMode,
+                name = if (GlobalLanguage.isEnglish) "Tahajjud" else "তাহাজ্জুদ",
+                time = "${if (GlobalLanguage.isEnglish) "After Isha" else "ইশার পর"} - ${if (GlobalLanguage.isEnglish) "Night" else "রাত"} ${times.fajr.toBengali()}",
+                subtitle = if (GlobalLanguage.isEnglish) "Last 1/3 of Night starts: " + formatTime(times.fajrHours - 3.0) 
+                           else "রাতের শেষ ১/৩ শুরু: রাত ${formatTime(times.fajrHours - 3.0)}"
+             )
+        }
+    }
+}
+
+@Composable
+fun NaflSalatRow(icon: ImageVector, name: String, time: String, subtitle: String? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = TextDark, modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(name, color = TextDark, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(time, color = TextDark, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            if (subtitle != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).background(PrimaryGreen, CircleShape))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(subtitle, color = TextGray, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun SubInfoItem(title: String, time: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(horizontalAlignment = Alignment.Start) {
         Text(title, color = TextGray, fontSize = 11.sp, fontWeight=FontWeight.Medium)
-        Spacer(modifier=Modifier.height(4.dp))
+        Spacer(modifier=Modifier.height(2.dp))
         Text(time, color = TextDark, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-fun SubInfoItemProgress(title: String, time: String, progress: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, color = TextGray, fontSize = 11.sp, fontWeight=FontWeight.Medium)
-        Spacer(modifier=Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-             Text(time, color = PrimaryGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-             Spacer(modifier=Modifier.width(4.dp))
-             Text(progress, color = PrimaryGreen, fontSize = 10.sp, fontWeight=FontWeight.Bold)
+fun SubInfoItemProgress(title: String, time: String, progress: String, isLarge: Boolean = false) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(if (isLarge) 60.dp else 44.dp)) {
+            CircularProgressIndicator(
+                progress = { 1f },
+                strokeWidth = if (isLarge) 4.dp else 3.dp,
+                color = BgLight,
+                modifier = Modifier.fillMaxSize()
+            )
+            val progressFactor = try { progress.replace("%", "").trim().toDouble() / 100.0 } catch(e: Exception) { 0.75 }
+            CircularProgressIndicator(
+                progress = { progressFactor.toFloat() },
+                strokeWidth = if (isLarge) 4.dp else 3.dp,
+                color = PrimaryGreen,
+                modifier = Modifier.fillMaxSize()
+            )
+            // progress is in Bengali digits, need to handle or just display
+            Text(progress, fontSize = if (isLarge) 14.sp else 10.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen)
+        }
+        Column {
+            Text(title, fontSize = if (isLarge) 11.sp else 9.sp, color = TextGray)
+            Text(time, fontSize = if (isLarge) 20.sp else 15.sp, fontWeight = FontWeight.Bold, color = TextDark)
         }
     }
 }
@@ -819,41 +1053,78 @@ fun SubInfoItemProgress(title: String, time: String, progress: String) {
 @Composable
 fun PrayerRow(
     name: String, 
-    time: String, 
+    startTime: String, 
+    endTime: String,
     isAlarmOn: Boolean, 
     isActive: Boolean, 
     onToggleAlarm: () -> Unit,
     onOpenAlarmPage: () -> Unit
 ) {
+    val cleanStart = startTime.replace(" এএম", "").replace(" পিএম", "").replace(" AM", "").replace(" PM", "").toBengali()
+    val cleanEnd = endTime.replace(" এএম", "").replace(" পিএম", "").replace(" AM", "").replace(" PM", "").toBengali()
+    val endSuffix = if (endTime.contains("পিএম") || endTime.contains("PM")) " পিএম" else " এএম"
+    
+    // For night time range like Isha to Fajr
+    val timeDisplay = if (name == "এশা" || name == "Isha") {
+        "$cleanStart - ${if (GlobalLanguage.isEnglish) "Night" else "রাত"} $cleanEnd".toBengali()
+    } else {
+        "$cleanStart - $cleanEnd$endSuffix".toBengali()
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
-            .background(if(isActive) PrimaryGreen.copy(alpha=0.08f) else Color.Transparent, RoundedCornerShape(8.dp))
-            .padding(horizontal=8.dp, vertical=8.dp)
-            .clickable { onOpenAlarmPage() },
+            .padding(vertical = 1.dp)
+            .background(if(isActive) PrimaryGreen.copy(alpha=0.08f) else Color.Transparent, RoundedCornerShape(12.dp))
+            .clickable { onOpenAlarmPage() }
+            .padding(horizontal=12.dp, vertical=4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (name == "এশা" || name == "মাগরিব" || name=="ফজর") Icons.Outlined.DarkMode else Icons.Outlined.LightMode, contentDescription = null, tint = TextGray, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(name, color = TextDark, fontSize = 15.sp, fontWeight=if(isActive) FontWeight.Bold else FontWeight.Medium)
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(if(isActive) PrimaryGreen.copy(alpha=0.12f) else BgLight.copy(alpha=0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (name == "এশা" || name == "মাগরিব" || name=="ফজর" || name == "Isha" || name == "Maghrib" || name == "Fajr") 
+                        Icons.Outlined.DarkMode else Icons.Outlined.LightMode, 
+                    contentDescription = null, 
+                    tint = if(isActive) PrimaryGreen else TextGray, 
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                name, 
+                color = TextDark, 
+                fontSize = 18.sp, 
+                fontWeight=if(isActive) FontWeight.Bold else FontWeight.Medium
+            )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(time.toBengali(), color = TextDark, fontSize = 14.sp, fontWeight=if(isActive) FontWeight.Bold else FontWeight.Medium)
+            Text(
+                timeDisplay, 
+                color = TextDark, 
+                fontSize = 17.sp, 
+                fontWeight=if(isActive) FontWeight.Bold else FontWeight.SemiBold
+            )
             Spacer(modifier = Modifier.width(16.dp))
             IconButton(onClick = onToggleAlarm, modifier = Modifier.size(24.dp)) {
                  Icon(
                      if (isAlarmOn) Icons.Default.NotificationsActive else Icons.Outlined.Notifications,
                      contentDescription = "Alarm",
-                     tint = if (isAlarmOn) PrimaryGreen else TextGray,
+                     tint = if (isAlarmOn) PrimaryGreen else TextGray.copy(alpha = 0.6f),
                      modifier = Modifier.size(20.dp)
                  )
             }
         }
     }
 }
+
+data class Quad<A, B, C, D>(val id: A, val name: B, val startTime: C, val endTime: D)
 
 @Composable
 fun CategoryGrid(
@@ -895,17 +1166,17 @@ fun CategoryGrid(
         )
     }
 
-    Column {
+    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
         for (row in 0..2) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 for (col in 0..3) {
                     val index = row * 4 + col
                     val item = items[index]
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .width(70.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .width(68.dp)
+                            .clip(CircleShape)
                             .clickable {
                                 if (item.first == "আমল শিক্ষা" || item.first == "তাসবিহ" || item.first == "নামাজ শিক্ষা" || 
                                     item.first == "Amal Learning" || item.first == "Tasbih" || item.first == "Salah Learning") {
@@ -922,13 +1193,23 @@ fun CategoryGrid(
                             }
                     ) {
                         Box(
-                            modifier = Modifier.size(52.dp).background(item.third, CircleShape),
+                            modifier = Modifier
+                                .size(50.dp)
+                                .background(
+                                    Color(
+                                        red = (item.third.red * 0.82f).coerceIn(0f, 1f),
+                                        green = (item.third.green * 0.82f).coerceIn(0f, 1f),
+                                        blue = (item.third.blue * 0.82f).coerceIn(0f, 1f),
+                                        alpha = 1f
+                                    ), 
+                                    CircleShape
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(item.second, contentDescription = item.first, tint = Color.White, modifier = Modifier.size(24.dp))
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(item.first, color = TextDark, fontSize = 11.sp, textAlign = TextAlign.Center, lineHeight=14.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(item.first, color = TextDark, fontSize = 11.sp, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium, maxLines = 1)
                     }
                 }
             }

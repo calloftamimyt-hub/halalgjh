@@ -48,18 +48,8 @@ fun LoginScreen(
     val scope = rememberCoroutineScope()
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Login" else "লগইন করুন") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BgLight)
-            )
-        },
-        containerColor = BgLight
+        containerColor = BgLight,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -95,8 +85,8 @@ fun LoginScreen(
                 value = email,
                 onValueChange = { email = it },
                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Email Address" else "ইমেইল এড্রেস") },
-                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                shape = RoundedCornerShape(30.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = TextDark,
                     unfocusedTextColor = TextDark,
@@ -104,6 +94,8 @@ fun LoginScreen(
                     unfocusedLabelColor = TextGray,
                     focusedBorderColor = PrimaryGreen,
                     unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
                     cursorColor = PrimaryGreen
                 ),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -116,8 +108,8 @@ fun LoginScreen(
                 value = password,
                 onValueChange = { password = it },
                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Password" else "পাসওয়ার্ড") },
-                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                shape = RoundedCornerShape(30.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = TextDark,
                     unfocusedTextColor = TextDark,
@@ -125,6 +117,8 @@ fun LoginScreen(
                     unfocusedLabelColor = TextGray,
                     focusedBorderColor = PrimaryGreen,
                     unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
                     cursorColor = PrimaryGreen
                 ),
                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -269,18 +263,8 @@ fun RegisterScreen(
     val auth = FirebaseAuth.getInstance()
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Sign Up" else "রেজিস্ট্রেশন") },
-                navigationIcon = {
-                    IconButton(onClick = { if (step > 0) step-- else onBack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BgLight)
-            )
-        },
-        containerColor = BgLight
+        containerColor = BgLight,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -302,17 +286,39 @@ fun RegisterScreen(
                             OutlinedTextField(
                                 value = firstName, onValueChange = { firstName = it },
                                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "First Name" else "নামের প্রথম অংশ") },
-                                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryGreen, unfocusedBorderColor = TextGray.copy(alpha = 0.5f))
+                                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                                shape = RoundedCornerShape(30.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextDark,
+                                    unfocusedTextColor = TextDark,
+                                    focusedLabelColor = PrimaryGreen,
+                                    unfocusedLabelColor = TextGray,
+                                    focusedBorderColor = PrimaryGreen,
+                                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    cursorColor = PrimaryGreen
+                                ),
+                                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = if (firstName.isNotEmpty()) PrimaryGreen else TextGray) }
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             OutlinedTextField(
                                 value = lastName, onValueChange = { lastName = it },
                                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Last Name" else "শেষ অংশ") },
-                                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryGreen, unfocusedBorderColor = TextGray.copy(alpha = 0.5f))
+                                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                                shape = RoundedCornerShape(30.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextDark,
+                                    unfocusedTextColor = TextDark,
+                                    focusedLabelColor = PrimaryGreen,
+                                    unfocusedLabelColor = TextGray,
+                                    focusedBorderColor = PrimaryGreen,
+                                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    cursorColor = PrimaryGreen
+                                ),
+                                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = if (lastName.isNotEmpty()) PrimaryGreen else TextGray) }
                             )
                         }
                         1 -> {
@@ -321,28 +327,79 @@ fun RegisterScreen(
                             OutlinedTextField(
                                 value = email, onValueChange = { email = it },
                                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Email" else "ইমেইল") },
-                                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryGreen, unfocusedBorderColor = TextGray.copy(alpha = 0.5f)),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                                shape = RoundedCornerShape(30.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextDark,
+                                    unfocusedTextColor = TextDark,
+                                    focusedLabelColor = PrimaryGreen,
+                                    unfocusedLabelColor = TextGray,
+                                    focusedBorderColor = PrimaryGreen,
+                                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    cursorColor = PrimaryGreen
+                                ),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = if (email.isNotEmpty()) PrimaryGreen else TextGray) }
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             OutlinedTextField(
                                 value = password, onValueChange = { password = it },
                                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Password" else "পাসওয়ার্ড") },
-                                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryGreen, unfocusedBorderColor = TextGray.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                                shape = RoundedCornerShape(30.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextDark,
+                                    unfocusedTextColor = TextDark,
+                                    focusedLabelColor = PrimaryGreen,
+                                    unfocusedLabelColor = TextGray,
+                                    focusedBorderColor = PrimaryGreen,
+                                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    cursorColor = PrimaryGreen
+                                ),
                                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                        Icon(
+                                            if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, 
+                                            null,
+                                            tint = TextGray
+                                        )
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = if (password.isNotEmpty()) PrimaryGreen else TextGray) }
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             OutlinedTextField(
                                 value = confirmPassword, onValueChange = { confirmPassword = it },
                                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Confirm Password" else "পাসওয়ার্ড নিশ্চিত") },
-                                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryGreen, unfocusedBorderColor = TextGray.copy(alpha = 0.5f)),
-                                visualTransformation = PasswordVisualTransformation()
+                                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                                shape = RoundedCornerShape(30.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextDark,
+                                    unfocusedTextColor = TextDark,
+                                    focusedLabelColor = PrimaryGreen,
+                                    unfocusedLabelColor = TextGray,
+                                    focusedBorderColor = PrimaryGreen,
+                                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    cursorColor = PrimaryGreen
+                                ),
+                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                        Icon(
+                                            if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, 
+                                            null,
+                                            tint = TextGray
+                                        )
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = if (confirmPassword.isNotEmpty()) PrimaryGreen else TextGray) }
                             )
                         }
                         2 -> {
@@ -351,10 +408,21 @@ fun RegisterScreen(
                             OutlinedTextField(
                                 value = mobile, onValueChange = { mobile = it },
                                 label = { Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Mobile Number" else "মোবাইল নাম্বার") },
-                                modifier = Modifier.fillMaxWidth(0.85f).height(54.dp),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryGreen, unfocusedBorderColor = TextGray.copy(alpha = 0.5f)),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                                modifier = Modifier.fillMaxWidth(0.95f).height(60.dp),
+                                shape = RoundedCornerShape(30.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextDark,
+                                    unfocusedTextColor = TextDark,
+                                    focusedLabelColor = PrimaryGreen,
+                                    unfocusedLabelColor = TextGray,
+                                    focusedBorderColor = PrimaryGreen,
+                                    unfocusedBorderColor = TextGray.copy(alpha = 0.5f),
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    cursorColor = PrimaryGreen
+                                ),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = if (mobile.isNotEmpty()) PrimaryGreen else TextGray) }
                             )
                         }
                     }

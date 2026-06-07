@@ -17,9 +17,6 @@ service cloud.firestore {
       allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
 
       // 4. Update: Extremely secure field-level protection.
-      // - The creator of the video is allowed to perform any modifications.
-      // - Any user (including guest users) is only allowed to increment analytics counts (viewsCount, sharesCount) 
-      //   or modify likedBy list. Prohibits altering core fields like status (moderation), userId, videoUri, etc.
       allow update: if (request.auth != null && resource.data.userId == request.auth.uid) || 
                        (
                          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -30,5 +27,49 @@ service cloud.firestore {
                        );
     }
     
+    // ======================================================================
+    // 🔔 Secure remote_notifications Collection Rules
+    // ======================================================================
+    match /remote_notifications/{docId} {
+      allow read: if request.auth != null && resource.data.toId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.actorId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.toId == request.auth.uid && 
+                       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['toId', 'actorId', 'type', 'title', 'body', 'timestamp']);
+      allow delete: if request.auth != null && resource.data.toId == request.auth.uid;
+    }
+
+    // ======================================================================
+    // 🤝 Secure follows Collection Rules
+    // ======================================================================
+    match /follows/{docId} {
+      allow read: if true;
+      allow create: if request.auth != null && 
+                       request.resource.data.followerId == request.auth.uid &&
+                       docId == request.auth.uid + "_" + request.resource.data.creatorId;
+      allow update: if request.auth != null && 
+                       resource.data.followerId == request.auth.uid &&
+                       request.resource.data.followerId == request.auth.uid &&
+                       request.resource.data.creatorId == resource.data.creatorId;
+      allow delete: if request.auth != null && resource.data.followerId == request.auth.uid;
+    }
+
+    // ======================================================================
+    // 👤 Secure users Collection Rules
+    // ======================================================================
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ======================================================================
+    // 💾 Secure savedPosts Collection Rules
+    // ======================================================================
+    match /savedPosts/{docId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
   }
 }

@@ -38,6 +38,7 @@ fun VideoProfileScreen(
 ) {
     val context = LocalContext.current
     val currentUser = FirebaseAuth.getInstance().currentUser
+    var playingVideoId by remember { mutableStateOf<String?>(null) }
     
     val myVideosOnly = remember(userVideos, currentUser) {
         val uid = currentUser?.uid ?: ""
@@ -48,7 +49,7 @@ fun VideoProfileScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White),
-        contentPadding = PaddingValues(top = 90.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
+        contentPadding = PaddingValues(top = 95.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Redesigned Creator Profile Header Card
@@ -251,13 +252,46 @@ fun VideoProfileScreen(
             }
         }
 
-        items(myVideosOnly, key = { it.docId }) { video ->
-            MyVideoStatusRow(
-                video = video,
+        items(myVideosOnly, key = { it.docId }) { uv ->
+            val playUrl = if (uv.telegramFileId.isNotEmpty() && !TELEGRAM_PROXY_URL.contains("YOUR_SCRIPT_ID")) {
+                "$TELEGRAM_PROXY_URL?action=stream&file_id=${uv.telegramFileId}"
+            } else if (uv.videoUri.startsWith("http")) {
+                uv.videoUri
+            } else if (uv.videoUri.startsWith("content") && uv.userId == (currentUser?.uid ?: "")) {
+                uv.videoUri
+            } else {
+                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
+            }
+            val videoItem = VideoItem(
+                id = uv.docId?.hashCode() ?: java.util.UUID.randomUUID().hashCode(),
+                url = playUrl ?: "",
+                author = uv.author ?: "Unknown Author",
+                description = uv.description ?: "",
+                category = uv.category ?: "সাধারণ",
+                status = uv.status ?: "PENDING",
+                docId = uv.docId ?: "",
+                userId = uv.userId ?: "",
+                isOfflineMode = uv.isOfflineMode ?: false,
+                telegramFileId = uv.telegramFileId ?: "",
+                viewsCount = uv.viewsCount ?: 0L,
+                likedBy = uv.likedBy ?: emptyList(),
+                sharesCount = uv.sharesCount ?: 0L,
+                title = uv.title ?: "",
+                videoUri = uv.videoUri ?: ""
+            )
+
+            MyProfileVideoPostWrapper(
+                video = uv,
+                videoItem = videoItem,
+                isPlaying = (playingVideoId == uv.docId),
+                onPlayClick = {
+                    playingVideoId = if (playingVideoId == uv.docId) null else uv.docId
+                },
+                onNavigateToSaved = onNavigateToSaved,
                 onDelete = {
                     try {
                         FirebaseFirestore.getInstance().collection("videos")
-                            .document(video.docId)
+                            .document(uv.docId)
                             .delete()
                             .addOnSuccessListener {
                                 Toast.makeText(context, if (GlobalLanguage.isEnglish) "Video deleted!" else "ভিডিও ডিলেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
@@ -293,7 +327,15 @@ fun ProfileStatItem(label: String, value: String) {
 }
 
 @Composable
-fun MyVideoStatusRow(video: UserUploadedVideo, onDelete: () -> Unit) {
+fun MyProfileVideoPostWrapper(
+    video: UserUploadedVideo,
+    videoItem: VideoItem,
+    isPlaying: Boolean,
+    onPlayClick: () -> Unit,
+    onNavigateToSaved: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
     var showDialog by remember { mutableStateOf(false) }
 
     if (showDialog) {
@@ -322,87 +364,64 @@ fun MyVideoStatusRow(video: UserUploadedVideo, onDelete: () -> Unit) {
         )
     }
 
-    Surface(
-        color = Color(0xFFF9FAFB),
-        border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White)
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Icon depicting video
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayCircleOutline,
-                    contentDescription = null,
-                    tint = PrimaryGreen,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (video.title.isBlank()) "Untitled" else video.title,
-                    color = Color(0xFF111827),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = if (video.description.isBlank()) "No description" else video.description,
-                    color = Color(0xFF4B5563),
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Custom Status labels
-                val statusConfig = when (video.status.trim().uppercase()) {
-                    "APPROVED" -> Triple(
-                        if (GlobalLanguage.isEnglish) "Approved" else "অনুমোদিত",
-                        PrimaryGreen,
-                        PrimaryGreen.copy(alpha = 0.12f)
-                    )
-                    "REJECTED" -> Triple(
-                        if (GlobalLanguage.isEnglish) "Rejected" else "প্রত্যাখ্যাত",
-                        Color.Red,
-                        Color.Red.copy(alpha = 0.12f)
-                    )
-                    else -> Triple(
-                        if (GlobalLanguage.isEnglish) "Pending Review" else "অপেক্ষমান",
-                        Color(0xFFF59E0B),
-                        Color(0xFFF59E0B).copy(alpha = 0.12f)
-                    )
-                }
-
-                Surface(
-                    color = statusConfig.third,
-                    shape = RoundedCornerShape(4.dp),
-                ) {
-                    Text(
-                        text = statusConfig.first,
-                        color = statusConfig.second,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            IconButton(onClick = { showDialog = true }) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.8f))
-            }
+        // Status Badge / Header
+        val statusText = when (video.status.trim().uppercase()) {
+            "APPROVED" -> if (GlobalLanguage.isEnglish) "Approved & Published" else "অনুমোদিত ও প্রকাশিত"
+            "REJECTED" -> if (GlobalLanguage.isEnglish) "Rejected Submission" else "প্রত্যাখ্যাত ভিডিও"
+            else -> if (GlobalLanguage.isEnglish) "Pending Review" else "অনুমোদনের অপেক্ষায়"
         }
+        val statusColor = when (video.status.trim().uppercase()) {
+            "APPROVED" -> PrimaryGreen
+            "REJECTED" -> Color.Red
+            else -> Color(0xFFF59E0B)
+        }
+        val statusBg = statusColor.copy(alpha = 0.08f)
+        
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(statusBg)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(8.dp).background(statusColor, androidx.compose.foundation.shape.CircleShape))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = statusText,
+                    color = statusColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+            
+            Text(
+                text = if (GlobalLanguage.isEnglish) "Delete Submission" else "মুছে ফেলুন",
+                color = Color.Red,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { showDialog = true }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+        
+        FacebookVideoPostCard(
+            video = videoItem,
+            isPlaying = isPlaying,
+            onPlayClick = onPlayClick,
+            isLimitExceeded = false,
+            onRequireLogin = {},
+            onNavigateToCreatorProfile = { _, _ -> },
+            onNavigateToSaved = onNavigateToSaved,
+            dismissedPendingBanners = remember { androidx.compose.runtime.mutableStateMapOf() }
+        )
     }
 }

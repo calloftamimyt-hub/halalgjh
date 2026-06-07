@@ -1,6 +1,8 @@
 package com.example
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -17,7 +19,8 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(onBack: () -> Unit) {
-    val currentDate = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(Date())
+    val currentDate = SimpleDateFormat("dd MMMM yyyy", Locale("bn", "BD")).format(Date())
+    val datePickerState = rememberDatePickerState()
     
     Scaffold(
         topBar = {
@@ -31,11 +34,50 @@ fun CalendarScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Box(
-            modifier = Modifier.padding(padding).fillMaxSize(),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("আজকের তারিখ: $currentDate", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "আজকের তারিখ",
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        currentDate,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                DatePicker(
+                    state = datePickerState,
+                    modifier = Modifier.padding(8.dp),
+                    showModeToggle = false
+                )
+            }
         }
     }
 }

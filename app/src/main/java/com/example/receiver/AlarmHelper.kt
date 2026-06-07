@@ -28,8 +28,12 @@ object AlarmHelper {
             Pair("Isha", times.ishaHours)
         )
 
-        // Filter based on user preference if provided
-        val activePrayers = if (alarms != null) allPrayers.filter { alarms[it.first] == true } else allPrayers
+        // Filter based on user preference but ALWAYS include Sunrise and Maghrib for notifications
+        val activePrayers = if (alarms != null) {
+            allPrayers.filter { 
+                alarms[it.first] == true || it.first == "Sunrise" || it.first == "Maghrib"
+            }
+        } else allPrayers
 
         if (activePrayers.isEmpty()) {
             cancelAlarm(context)
@@ -62,7 +66,11 @@ object AlarmHelper {
                 Pair("Maghrib", tomorrowTimes.maghribHours),
                 Pair("Isha", tomorrowTimes.ishaHours)
             )
-            val tomorrowActivePrayers = if (alarms != null) tomorrowAllPrayers.filter { alarms[it.first] == true } else tomorrowAllPrayers
+            val tomorrowActivePrayers = if (alarms != null) {
+                tomorrowAllPrayers.filter { 
+                    alarms[it.first] == true || it.first == "Sunrise" || it.first == "Maghrib"
+                }
+            } else tomorrowAllPrayers
             nextPrayerTime = tomorrowActivePrayers.first().second
             nextPrayerName = tomorrowActivePrayers.first().first
             isTomorrow = true

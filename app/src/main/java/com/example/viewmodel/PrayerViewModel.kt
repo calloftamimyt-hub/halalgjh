@@ -81,6 +81,8 @@ data class ViewState(
     val forbiddenSunset: String = "০০:০০",
     val forbiddenSunsetEnd: String = "০০:০০",
     val currentPrayerName: String = "",
+    val currentPrayerNameBen: String = "",
+    val rotatingNames: List<String> = emptyList(),
     val madhab: Int = 2, // 1 for Shafi, 2 for Hanafi
     val error: String? = null
 )
@@ -266,92 +268,132 @@ class PrayerViewModel : ViewModel() {
         val calendar = Calendar.getInstance()
         val currentHourDecimal = calendar.get(Calendar.HOUR_OF_DAY) + calendar.get(Calendar.MINUTE) / 60.0 + calendar.get(Calendar.SECOND) / 3600.0
         
-        val prayerList = if (GlobalLanguage.isEnglish) {
-            listOf(
-                Triple("Fajr", "Fajr", times.fajrHours),
-                Triple("Sunrise", "Sunrise", times.sunriseHours),
-                Triple("Dhuhr", "Dhuhr", times.dhuhrHours),
-                Triple("Asr", "Asr", times.asrHours),
-                Triple("Maghrib", "Maghrib", times.maghribHours),
-                Triple("Isha", "Isha", times.ishaHours)
-            )
-        } else {
-            listOf(
-                Triple("Fajr", "ফজর", times.fajrHours),
-                Triple("Sunrise", "সূর্যোদয়", times.sunriseHours),
-                Triple("Dhuhr", "যোহর", times.dhuhrHours),
-                Triple("Asr", "আসর", times.asrHours),
-                Triple("Maghrib", "মাগরিব", times.maghribHours),
-                Triple("Isha", "এশা", times.ishaHours)
-            )
-        }
+        val sunriseHours = times.sunriseHours
+        val dhuhrHours = times.dhuhrHours
+        val asrHours = times.asrHours
+        val maghribHours = times.maghribHours
+        val ishaHours = times.ishaHours
+        val fajrHours = times.fajrHours
+
+        // Check if we are in the Nafl/Chasht period (Sunrise to Dhuhr)
+        val isNaflPeriod = currentHourDecimal >= sunriseHours && currentHourDecimal < dhuhrHours
+
+        var currentName = ""
+        var currentNameBen = ""
+        var currentStartTime = 0.0
+        var currentEndTime = 0.0
 
         var nextName = ""
         var nextNameBen = ""
-        var nextTime = -1.0
-        var prevTime = 0.0
 
-        for (i in prayerList.indices) {
-            if (prayerList[i].third > currentHourDecimal) {
-                nextName = prayerList[i].first
-                nextNameBen = prayerList[i].second
-                nextTime = prayerList[i].third
-                prevTime = if (i > 0) prayerList[i-1].third else {
+        if (isNaflPeriod) {
+            // It's Nafl period! Between Sunrise and Dhuhr.
+            currentName = "Duha" // triggers rotating names in center of circular timer
+            currentNameBen = if (GlobalLanguage.isEnglish) "Chasht" else "চাশত"
+            currentStartTime = sunriseHours
+            currentEndTime = dhuhrHours
+
+            nextName = "Dhuhr"
+            nextNameBen = if (GlobalLanguage.isEnglish) "Dhuhr" else "যোহর"
+        } else {
+            // Find current and next among the 5 daily prayers
+            // Fajr period: starts at fajrHours, ends at sunriseHours
+            if (currentHourDecimal >= fajrHours && currentHourDecimal < sunriseHours) {
+                currentName = "Fajr"
+                currentNameBen = if (GlobalLanguage.isEnglish) "Fajr" else "ফজর"
+                currentStartTime = fajrHours
+                currentEndTime = sunriseHours
+
+                nextName = "Dhuhr"
+                nextNameBen = if (GlobalLanguage.isEnglish) "Dhuhr" else "যোহর"
+            } 
+            // Dhuhr period: dhuhrHours to asrHours
+            else if (currentHourDecimal >= dhuhrHours && currentHourDecimal < asrHours) {
+                currentName = "Dhuhr"
+                currentNameBen = if (GlobalLanguage.isEnglish) "Dhuhr" else "যোহর"
+                currentStartTime = dhuhrHours
+                currentEndTime = asrHours
+
+                nextName = "Asr"
+                nextNameBen = if (GlobalLanguage.isEnglish) "Asr" else "আসর"
+            }
+            // Asr period: asrHours to maghribHours
+            else if (currentHourDecimal >= asrHours && currentHourDecimal < maghribHours) {
+                currentName = "Asr"
+                currentNameBen = if (GlobalLanguage.isEnglish) "Asr" else "আসর"
+                currentStartTime = asrHours
+                currentEndTime = maghribHours
+
+                nextName = "Maghrib"
+                nextNameBen = if (GlobalLanguage.isEnglish) "Maghrib" else "মাগরিব"
+            }
+            // Maghrib period: maghribHours to ishaHours
+            else if (currentHourDecimal >= maghribHours && currentHourDecimal < ishaHours) {
+                currentName = "Maghrib"
+                currentNameBen = if (GlobalLanguage.isEnglish) "Maghrib" else "মাগরিব"
+                currentStartTime = maghribHours
+                currentEndTime = ishaHours
+
+                nextName = "Isha"
+                nextNameBen = if (GlobalLanguage.isEnglish) "Isha" else "এশা"
+            }
+            // Isha period: ishaHours to next Fajr (with midnight rollover check)
+            else {
+                currentName = "Isha"
+                currentNameBen = if (GlobalLanguage.isEnglish) "Isha" else "এশা"
+                
+                if (currentHourDecimal >= ishaHours) {
+                    currentStartTime = ishaHours
+                    val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+                    val tomorrowTimes = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, tomorrow)
+                    currentEndTime = tomorrowTimes.fajrHours + 24.0
+                } else {
+                    // past midnight but before Fajr
                     val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
-                    val y = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, yesterday)
-                    y.ishaHours - 24.0
+                    val yesterdayTimes = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, yesterday)
+                    currentStartTime = yesterdayTimes.ishaHours - 24.0
+                    currentEndTime = fajrHours
                 }
-                break
+
+                nextName = "Fajr"
+                nextNameBen = if (GlobalLanguage.isEnglish) "Fajr" else "ফজর"
             }
         }
 
-        if (nextName.isEmpty()) {
-            nextName = "Fajr"
-            nextNameBen = if (GlobalLanguage.isEnglish) "Fajr" else "ফজর"
-            val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
-            val t = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, tomorrow)
-            nextTime = t.fajrHours + 24.0
-            prevTime = times.ishaHours
+        _state.update { 
+            it.copy(
+                currentPrayerName = currentName, 
+                currentPrayerNameBen = currentNameBen,
+                nextPrayerName = nextName,
+                nextPrayerNameBen = nextNameBen
+            ) 
         }
-
-        _state.update { it.copy(nextPrayerName = nextName, nextPrayerNameBen = nextNameBen) }
-
-        // Determine current prayer
-        var currentName = ""
-        for (i in prayerList.indices) {
-            val start = prayerList[i].third
-            val end = if (i < prayerList.size - 1) prayerList[i+1].third else {
-                val t = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
-                val nextFajr = PrayerCalculator.calculatePrayerTimes(lastLat, lastLng, lastOffset, lastMadhab, t).fajrHours
-                nextFajr + 24.0
-            }
-            if (currentHourDecimal >= start && currentHourDecimal < end) {
-                currentName = prayerList[i].first
-                break
-            }
-        }
-        if (currentName.isEmpty() && currentHourDecimal < prayerList[0].third) {
-            currentName = "Isha" // from midnight to Fajr
-        }
-
-        _state.update { it.copy(currentPrayerName = currentName) }
         
-        startCountdownTimer(nextTime, prevTime, times)
+        // Handle rotating names for Nafl period (Between Sunrise and Dhuhr)
+        val rotating = if (isNaflPeriod) {
+            if (GlobalLanguage.isEnglish) listOf("Ishraq", "Chasht", "Duha") 
+            else listOf("ইশরাক", "চাশত", "দোহা")
+        } else {
+            emptyList()
+        }
+        _state.update { it.copy(rotatingNames = rotating) }
+
+        startCountdownTimer(currentEndTime, currentStartTime, times)
     }
 
-    private fun startCountdownTimer(nextPrayerHour: Double, prevPrayerHour: Double, todayTimes: PrayerTimes) {
+    private fun startCountdownTimer(targetHour: Double, startHour: Double, todayTimes: PrayerTimes) {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while(true) {
                 val cal = Calendar.getInstance()
                 val currentHourDec = cal.get(Calendar.HOUR_OF_DAY) + cal.get(Calendar.MINUTE)/60.0 + cal.get(Calendar.SECOND)/3600.0
                 
-                // Normal Prayer Countdown
-                var diff = nextPrayerHour - currentHourDec
+                // Current Prayer Countdown (How much time left for current prayer to end)
+                var diff = targetHour - currentHourDec
                 if (diff < 0) diff += 24.0
                 
-                val totalDuration = nextPrayerHour - prevPrayerHour
-                val progress = ( (currentHourDec - prevPrayerHour) / totalDuration ).coerceIn(0.0, 1.0).toFloat()
+                val totalDuration = targetHour - startHour
+                val progress = ((currentHourDec - startHour) / totalDuration).coerceIn(0.0, 1.0).toFloat()
                 
                 val h = Math.floor(diff).toInt()
                 val m = Math.floor((diff - h)*60).toInt()

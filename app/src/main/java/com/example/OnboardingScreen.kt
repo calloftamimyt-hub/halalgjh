@@ -32,19 +32,46 @@ fun OnboardingScreen(
     onComplete: () -> Unit
 ) {
     var step by remember { mutableIntStateOf(1) }
+    var showAuthOption by remember { mutableStateOf<String?>(null) }
     
-    Box(modifier = Modifier.fillMaxSize().background(BgLight)) {
-        // Subtle background decoration
+    if (showAuthOption == "login") {
+        LoginScreen(
+            onBack = { showAuthOption = null },
+            onNavigateToRegister = { showAuthOption = "signup" },
+            onLoginSuccess = { 
+                showAuthOption = null
+                step = 2 
+            }
+        )
+        return
+    } else if (showAuthOption == "signup") {
+        RegisterScreen(
+            onBack = { showAuthOption = null },
+            onNavigateToLogin = { showAuthOption = "login" },
+            onRegisterSuccess = {
+                showAuthOption = null
+                step = 2 
+            }
+        )
+        return
+    }
+    
+    val premiumGradient = Brush.verticalGradient(
+        colors = listOf(Color(0xFFF6FAF7), Color(0xFFFFFFFF), Color(0xFFF0FDF4))
+    )
+    
+    Box(modifier = Modifier.fillMaxSize().background(premiumGradient)) {
+        // Subtle premium background decoration
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCircle(
-                color = PrimaryGreen.copy(alpha = 0.05f),
-                radius = size.width,
-                center = androidx.compose.ui.geometry.Offset(size.width, 0f)
+                color = PrimaryGreen.copy(alpha = 0.04f),
+                radius = size.width * 1.2f,
+                center = androidx.compose.ui.geometry.Offset(size.width, -100f)
             )
             drawCircle(
-                color = PrimaryGreen.copy(alpha = 0.03f),
-                radius = size.width * 0.6f,
-                center = androidx.compose.ui.geometry.Offset(0f, size.height)
+                color = PrimaryGreen.copy(alpha = 0.02f),
+                radius = size.width * 0.8f,
+                center = androidx.compose.ui.geometry.Offset(0f, size.height + 100f)
             )
         }
 
@@ -59,8 +86,8 @@ fun OnboardingScreen(
         ) { currentStep ->
             when (currentStep) {
                 1 -> WelcomeStep(
-                    onLogin = { step = 2 },
-                    onSignUp = { step = 2 },
+                    onLogin = { showAuthOption = "login" },
+                    onSignUp = { showAuthOption = "signup" },
                     onGuest = { step = 2 }
                 )
                 2 -> LanguageStep(
@@ -226,25 +253,25 @@ fun LanguageStep(
 fun LanguageOption(title: String, subtitle: String, isSelected: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = if (isSelected) PrimaryGreen.copy(alpha = 0.1f) else Color.White,
-        border = if (isSelected) BorderStroke(2.dp, PrimaryGreen) else BorderStroke(1.dp, Color(0xFFEEEEEE)),
-        shadowElevation = if (isSelected) 0.dp else 2.dp
+        border = if (isSelected) BorderStroke(1.5.dp, PrimaryGreen) else BorderStroke(1.dp, Color(0xFFEEEEEE)),
+        shadowElevation = if (isSelected) 0.dp else 1.dp
     ) {
         Row(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextDark)
-                Text(subtitle, fontSize = 14.sp, color = TextGray)
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = TextDark)
+                Text(subtitle, fontSize = 13.sp, color = TextGray)
             }
             Icon(
                 if (isSelected) Icons.Default.CheckCircle else Icons.Outlined.Circle,
                 contentDescription = null,
                 tint = if (isSelected) PrimaryGreen else Color(0xFFDDDDDD),
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }
@@ -255,12 +282,13 @@ fun MadhabStep(prayerViewModel: PrayerViewModel, onNext: () -> Unit) {
     val state by prayerViewModel.state.collectAsState()
     val isEnglish = GlobalLanguage.isEnglish
     val context = LocalContext.current
-    
+    var uiSelectedMadhab by remember { mutableStateOf(if(state.madhab == 2) "hanafi" else "shafii") }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp).padding(bottom = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(24.dp))
         
         Text(
             if (isEnglish) "Select Madhab" else "মাযহাব নির্বাচন করুন", 
@@ -269,7 +297,7 @@ fun MadhabStep(prayerViewModel: PrayerViewModel, onNext: () -> Unit) {
             color = TextDark,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             if (isEnglish) "This affects Asr prayer time calculation" else "এটি আসরের নামাজের সময় গণনায় ব্যবহৃত হবে", 
             fontSize = 15.sp, 
@@ -282,18 +310,48 @@ fun MadhabStep(prayerViewModel: PrayerViewModel, onNext: () -> Unit) {
         
         MadhabOption(
             title = if (isEnglish) "Hanafi" else "হানাফী",
-            description = if (isEnglish) "Asr starts when shadow is twice the length" else "বাংলাদেশে সবচেয়ে বেশি প্রচলিত",
-            isSelected = state.madhab == 2,
-            onClick = { prayerViewModel.setMadhab(context, 2) }
+            description = if (isEnglish) "Asr starts when shadow is twice the length" else "ছায়ার দৈর্ঘ্য দ্বিগুণ হলে আসর শুরু হয়",
+            isSelected = uiSelectedMadhab == "hanafi",
+            onClick = { 
+                uiSelectedMadhab = "hanafi"
+                prayerViewModel.setMadhab(context, 2) 
+            }
         )
         
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         
         MadhabOption(
-            title = if (isEnglish) "Shafi / Maliki / Hanbali" else "শাফেয়ী / মালিকী / হাম্বলী",
-            description = if (isEnglish) "Asr starts when shadow equals the length" else "সাধারণত মধ্যপ্রাচ্যে প্রচলিত",
-            isSelected = state.madhab == 1,
-            onClick = { prayerViewModel.setMadhab(context, 1) }
+            title = if (isEnglish) "Shafi'i" else "শাফেয়ী",
+            description = if (isEnglish) "Asr starts when shadow equals length" else "ছায়ার দৈর্ঘ্য একগুণ হলে আসর শুরু হয়",
+            isSelected = uiSelectedMadhab == "shafii",
+            onClick = { 
+                uiSelectedMadhab = "shafii"
+                prayerViewModel.setMadhab(context, 1) 
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        MadhabOption(
+            title = if (isEnglish) "Maliki" else "মালিকী",
+            description = if (isEnglish) "Asr starts when shadow equals length" else "ছায়ার দৈর্ঘ্য একগুণ হলে আসর শুরু হয়",
+            isSelected = uiSelectedMadhab == "maliki",
+            onClick = { 
+                uiSelectedMadhab = "maliki"
+                prayerViewModel.setMadhab(context, 1) 
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        MadhabOption(
+            title = if (isEnglish) "Hanbali" else "হাম্বলী",
+            description = if (isEnglish) "Asr starts when shadow equals length" else "ছায়ার দৈর্ঘ্য একগুণ হলে আসর শুরু হয়",
+            isSelected = uiSelectedMadhab == "hanbali",
+            onClick = { 
+                uiSelectedMadhab = "hanbali"
+                prayerViewModel.setMadhab(context, 1) 
+            }
         )
         
         Spacer(modifier = Modifier.weight(1f))
@@ -314,24 +372,25 @@ fun MadhabStep(prayerViewModel: PrayerViewModel, onNext: () -> Unit) {
 fun MadhabOption(title: String, description: String, isSelected: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = if (isSelected) PrimaryGreen.copy(alpha = 0.1f) else Color.White,
-        border = if (isSelected) BorderStroke(2.dp, PrimaryGreen) else BorderStroke(1.dp, Color(0xFFEEEEEE)),
-        shadowElevation = if (isSelected) 0.dp else 2.dp
+        border = if (isSelected) BorderStroke(1.5.dp, PrimaryGreen) else BorderStroke(1.dp, Color(0xFFEEEEEE)),
+        shadowElevation = if (isSelected) 0.dp else 1.dp
     ) {
         Row(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextDark)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(description, fontSize = 13.sp, color = TextGray)
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = TextDark)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(description, fontSize = 12.sp, color = TextGray)
             }
-            RadioButton(
-                selected = isSelected,
-                onClick = onClick,
-                colors = RadioButtonDefaults.colors(selectedColor = PrimaryGreen)
+            Icon(
+                if (isSelected) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                contentDescription = null,
+                tint = if (isSelected) PrimaryGreen else Color(0xFFDDDDDD),
+                modifier = Modifier.size(24.dp)
             )
         }
     }

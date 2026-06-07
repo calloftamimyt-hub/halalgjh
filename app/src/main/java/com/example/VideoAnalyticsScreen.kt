@@ -107,7 +107,7 @@ fun VideoAnalyticsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White),
-        contentPadding = PaddingValues(top = 80.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
+        contentPadding = PaddingValues(top = 95.dp, bottom = 100.dp, start = 16.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // High-end Profile Header Banner inside the item block

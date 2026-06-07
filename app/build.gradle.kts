@@ -9,12 +9,12 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 35
 
   defaultConfig {
     applicationId = "com.halalcircle"
-    minSdk = 26
-    targetSdk = 36
+    minSdk = 24
+    targetSdk = 35
     versionCode = 1
     versionName = "1.0"
 

@@ -53,91 +53,7 @@ fun NotificationsScreen(
     // Selected notification for the detail screen
     var selectedNotification by remember { mutableStateOf<NotificationEntity?>(null) }
     
-    // Seed notifications if the local database is currently empty
-    LaunchedEffect(notifications) {
-        if (notifications.isEmpty()) {
-            val now = System.currentTimeMillis()
-            val seedData = listOf(
-                NotificationEntity(
-                    title = "Shirin Akter and Tahsin Chowdhury liked your reel",
-                    body = "Shirin Akter and Tahsin Chowdhury reacted thumbs-up to your newly uploaded reel: \"মৃত্যু বয়স দেখে আসেনা, #calloftamim\". This interaction boosts your visibility on the home feed!",
-                    timestamp = now - (2 * 3600 * 1000), // 2 hours ago
-                    type = "LIKE",
-                    actorName = "Shirin Akter and Tahsin Chowdhury",
-                    itemType = "reel",
-                    itemTitle = "মৃত্যু বয়স দেখে আসেনা, #calloftamim"
-                ),
-                NotificationEntity(
-                    title = "Khairul Explored Life recently shared 6 posts",
-                    body = "Khairul Explored Life uploaded and shared 6 new lifestyle posts. Visit their profile now to share ideas and browse high-quality Islamic guidelines.",
-                    timestamp = now - (2 * 3600 * 1000), // 2 hours ago
-                    type = "SHARE",
-                    actorName = "Khairul Explored Life",
-                    itemType = "post",
-                    itemTitle = "shared 6 posts"
-                ),
-                NotificationEntity(
-                    title = "Your reel is ready to view. Share with your followers",
-                    body = "Good news! Your process is completed and your custom reel is published. Broadcast this video item widely to let your circle engage.",
-                    timestamp = now - (5 * 3600 * 1000), // 5 hours ago
-                    type = "VIDEO",
-                    actorName = "Halal Circle System",
-                    itemType = "reel",
-                    itemTitle = "ready to view"
-                ),
-                NotificationEntity(
-                    title = "Md Raihan, Rabiul Khan and 4 other people reacted to your reel",
-                    body = "Md Raihan, Rabiul Khan and 4 others sent likes and high-value feedback representing major platform appreciation on: \"একটু এমনি #calloftamim\".",
-                    timestamp = now - (15 * 3600 * 1000), // 15 hours ago
-                    type = "LIKE",
-                    actorName = "Md Raihan, Rabiul Khan and 4 others",
-                    itemType = "reel",
-                    itemTitle = "একটু এমনি #calloftamim"
-                ),
-                NotificationEntity(
-                    title = "Lamia Islam Tuli, Upset Boy Mokarom and Rabiul Khan reacted to your photo",
-                    body = "Lamia Islam Tuli, Upset Boy Mokarom and Rabiul Khan loved your latest photo upload: \"আমি মানুষ - টা এত...\". Keep up the fantastic spirit!",
-                    timestamp = now - (18 * 3600 * 1000), // 18 hours ago
-                    type = "LIKE",
-                    actorName = "Lamia Islam Tuli, Upset Boy Mokarom and Rabiul Khan",
-                    itemType = "photo",
-                    itemTitle = "আমি মানুষ - টা এত..."
-                ),
-                NotificationEntity(
-                    title = "Walid Hossain, a follower, likes your reel",
-                    body = "Your active follower Walid Hossain fully likes and supports your positive creations: \"তোমার করা কাজের ফল তুমি পাবেই,...\".",
-                    timestamp = now - (23 * 3600 * 1000), // 23 hours ago
-                    type = "LIKE",
-                    actorName = "Walid Hossain",
-                    itemType = "reel",
-                    itemTitle = "তোমার করা কাজের ফল তুমি পাবেই,..."
-                ),
-                NotificationEntity(
-                    title = "Upset Boy Mokarom, a follower, commented on your photo",
-                    body = "Upset Boy Mokarom commented supporting your view: 'SubhanAllah, the clarity of this is beautiful.' Click to respond.",
-                    timestamp = now - (24 * 3600 * 1000), // 1 day ago
-                    type = "COMMENT",
-                    actorName = "Upset Boy Mokarom",
-                    itemType = "photo",
-                    itemTitle = "commented on your photo"
-                ),
-                NotificationEntity(
-                    title = "Tamim Khan shared your post",
-                    body = "Tamim Khan shared your digital post directly into their timeline. Spreading goodness online is highly valued!",
-                    timestamp = now - (24 * 3600 * 1000), // 1 day ago
-                    type = "SHARE",
-                    actorName = "Tamim Khan",
-                    itemType = "post",
-                    itemTitle = "shared your post"
-                )
-            )
-            coroutineScope.launch {
-                seedData.forEach {
-                    notificationDao.insertNotification(it)
-                }
-            }
-        }
-    }
+    // No more demo notifications seeding
 
     // Double Screen implementation using AnimatedContent (Details page stack)
     AnimatedContent(
@@ -191,13 +107,27 @@ fun NotificationsScreen(
                             IconButton(onClick = {
                                 coroutineScope.launch {
                                     notificationDao.markAllAsRead()
-                                    Toast.makeText(context, "All notifications marked as read", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Marked as read", Toast.LENGTH_SHORT).show()
                                 }
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.DoneAll,
                                     contentDescription = "Mark all as read",
                                     tint = PrimaryGreen
+                                )
+                            }
+                            
+                            // Delete all notifications
+                            IconButton(onClick = {
+                                coroutineScope.launch {
+                                    notificationDao.deleteAllNotifications()
+                                    Toast.makeText(context, "All notifications deleted", Toast.LENGTH_SHORT).show()
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteForever,
+                                    contentDescription = "Delete all",
+                                    tint = Color.Red
                                 )
                             }
                         }
@@ -215,11 +145,17 @@ fun NotificationsScreen(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            CircularProgressIndicator(color = PrimaryGreen)
+                            Icon(Icons.Outlined.NotificationsOff, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.LightGray)
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("Loading list...", color = Color.Gray, fontSize = 14.sp)
+                            Text("প্রতীক্ষা করুন... কোনো নোটিফিকেশন নেই।", color = Color.Gray, fontSize = 14.sp)
                         }
                     } else {
+                        val uniqueNotifications = remember(notifications) {
+                            notifications.distinctBy { 
+                                // Logical uniqueness: same person doing same action to same item
+                                "${it.actorName}_${it.itemTitle}_${it.type}"
+                            }
+                        }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize()
                         ) {
@@ -241,7 +177,7 @@ fun NotificationsScreen(
                             }
 
                             // Notification Rows are tightly packed with minimal gap to look unified
-                            items(notifications, key = { it.id }) { item ->
+                            items(uniqueNotifications, key = { it.id }) { item ->
                                 val relativeTime = getFormattedTimeAgo(item.timestamp)
                                 NotificationRowItem(
                                     notification = item,
@@ -386,6 +322,8 @@ fun NotificationRowItem(
                             "SHARE" -> " recently shared "
                             "COMMENT" -> " commented on your "
                             "VIDEO" -> " is ready to view. "
+                            "FOLLOW" -> " has followed you. "
+                            "UNFOLLOW" -> " has unfollowed you. "
                             else -> " interacted with your "
                         }
                         append(actionVerb)
@@ -629,6 +567,8 @@ private fun getBadgeConfigForType(type: String): BadgeConfig {
         "SHARE" -> BadgeConfig(Icons.Default.Share, Color(0xFF007A87)) // Deep Teal circle
         "COMMENT" -> BadgeConfig(Icons.Default.Comment, Color(0xFF4CAF50)) // Green circle
         "VIDEO" -> BadgeConfig(Icons.Default.Videocam, Color(0xFFE91E63)) // Pink/Red circle
+        "FOLLOW" -> BadgeConfig(Icons.Default.PersonAdd, PrimaryGreen)
+        "UNFOLLOW" -> BadgeConfig(Icons.Default.PersonRemove, Color.Red)
         else -> BadgeConfig(Icons.Default.Notifications, PrimaryGreen)
     }
 }
