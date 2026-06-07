@@ -89,13 +89,68 @@ data class VideoItem(
     val likedBy: List<String> = emptyList(),
     val sharesCount: Long = 0L,
     val title: String = "",
-    val videoUri: String = ""
+    val videoUri: String = "",
+    val thumbnailUrl: String = ""
 )
 
 // dummyVideos removed to only show user-uploaded videos
 
 // Change this to your deployed Google Apps Script URL!
 const val TELEGRAM_PROXY_URL = "https://script.google.com/macros/s/AKfycbyse-oVHrCgGjsCtN7q_TaCEf6YIGKxWkpjL9ILq_Uems0odlikDcO9dAIUMWTlWQ4B8Q/exec"
+
+fun getYoutubeThumbnail(videoUri: String): String {
+    if (videoUri.contains("youtube.com/watch?v=")) {
+        val videoId = videoUri.substringAfter("v=").substringBefore("&")
+        return "https://img.youtube.com/vi/$videoId/0.jpg"
+    } else if (videoUri.contains("youtu.be/")) {
+        val videoId = videoUri.substringAfter("youtu.be/").substringBefore("?")
+        return "https://img.youtube.com/vi/$videoId/0.jpg"
+    }
+    return ""
+}
+
+val demoVideos = listOf(
+    VideoItem(
+        id = 101,
+        url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+        author = "ইসলামিক টিপস",
+        description = "লগইন করে প্রতিদিনের নতুন নতুন ইসলামিক ভিডিও দেখুন।",
+        category = "নমুনা",
+        title = "পবিত্রতা ঈমানের অঙ্গ - ডেমো ভিডিও"
+    ),
+    VideoItem(
+        id = 102,
+        url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        author = "কুরআন শিক্ষা",
+        description = "সঠিক নিয়মে কুরআন শিখতে আমাদের সাথেই থাকুন।",
+        category = "নমুনা",
+        title = "সূরা ফাতিহার গুরুত্ব - ডেমো ভিডিও"
+    ),
+    VideoItem(
+        id = 103,
+        url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+        author = "হাদিস বাণী",
+        description = "প্রতিদিনের আমল ও জিকির সম্পর্কে জানুন।",
+        category = "নমুনা",
+        title = "উত্তম নৈতিকতা - ডেমো ভিডিও"
+    ),
+    VideoItem(
+        id = 104,
+        url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+        author = "ইসলামিক জীবন",
+        description = "সাফল্যের চাবিকাঠি হিসেবে ধৈর্য ধারণ করুন।",
+        category = "নমুনা",
+        title = "ধৈর্যের প্রতিদান - ডেমো ভিডিও"
+    ),
+    VideoItem(
+        id = 105,
+        url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+        author = "বাচ্চাদের ইসলাম",
+        description = "ছোটদের জন্য মজার মজার ইসলামিক গল্প।",
+        category = "নমুনা",
+        title = "সততার পুরস্কার - ডেমো ভিডিও"
+    )
+)
 
 @kotlin.OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -128,10 +183,27 @@ fun VideoScreen(
     
     var isVideosLoading by remember { mutableStateOf(true) }
     
+    // Pagination state
+    var lastVisibleDoc by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
+    var isFetchingMore by remember { mutableStateOf(false) }
+
     // Real-time Firestore Listener
     DisposableEffect(currentUserId) {
+        if (currentUserId.isEmpty()) {
+            // Guest mode: no need to fetch from Firestore
+            isVideosLoading = false
+            return@DisposableEffect onDispose {}
+        }
+
+        // Safety timeout for loading
+        val loadingTimeoutTask = java.util.Timer().schedule(object : java.util.TimerTask() {
+            override fun run() {
+                isVideosLoading = false
+            }
+        }, 5000)
+
         var isApprovedLoaded = false
-        var isMyVideosLoaded = currentUserId.isEmpty()
+        var isMyVideosLoaded = false
         
         fun checkFinished() {
             if (isApprovedLoaded && isMyVideosLoaded) {
@@ -141,114 +213,146 @@ fun VideoScreen(
         
         val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
         
-        // Query 1: Get only APPROVED videos. Limit to 100 for instant download & fast paging
+        // Initial Query: Get first 15 APPROVED videos (increased for better early experience)
         val approvedListener = firestore.collection("videos")
             .whereEqualTo("status", "APPROVED")
-            .limit(100)
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(15)
             .addSnapshotListener { snapshots, e ->
                 if (e != null) {
-                    android.util.Log.w("Firebase", "Approved listen failed.", e)
-                    isApprovedLoaded = true
-                    checkFinished()
+                    android.util.Log.e("VideoScreen", "Approved videos listen failed: ${e.message}", e)
+                    // If index is missing, we might need a simpler query as fallback
+                    if (e.message?.contains("index") == true) {
+                        firestore.collection("videos")
+                            .whereEqualTo("status", "APPROVED")
+                            .limit(15)
+                            .get()
+                            .addOnSuccessListener { fallbackSnapshots ->
+                                val list = mutableListOf<UserUploadedVideo>()
+                                for (doc in fallbackSnapshots) {
+                                    doc.toObject(UserUploadedVideo::class.java)?.copy(docId = doc.id)?.let { list.add(it) }
+                                }
+                                approvedVideos = list.sortedByDescending { it.timestamp }
+                                isApprovedLoaded = true
+                                checkFinished()
+                            }
+                    } else {
+                        isApprovedLoaded = true
+                        isVideosLoading = false
+                    }
                     return@addSnapshotListener
                 }
                 
                 if (snapshots != null) {
+                    android.util.Log.d("VideoScreen", "Approved snapshots received: ${snapshots.size()}")
                     val list = mutableListOf<UserUploadedVideo>()
                     for (doc in snapshots) {
-                        try {
-                            val video = doc.toObject(UserUploadedVideo::class.java)?.copy(docId = doc.id)
-                            if (video != null) {
-                                list.add(video)
-                            }
-                        } catch (ex: Exception) {
-                            android.util.Log.e("Firebase", "Error parsing approved doc: ${doc.id}", ex)
-                        }
+                        doc.toObject(UserUploadedVideo::class.java)?.copy(docId = doc.id)?.let { list.add(it) }
                     }
                     approvedVideos = list
+                    if (!snapshots.isEmpty) {
+                        lastVisibleDoc = snapshots.documents[snapshots.size() - 1]
+                    }
+                    
                     isApprovedLoaded = true
                     checkFinished()
                 }
             }
             
-        // Query 2: Get user's own videos (so they can see pending/draft uploads in profile)
-        val myListener = if (currentUserId.isNotEmpty()) {
-            firestore.collection("videos")
-                .whereEqualTo("userId", currentUserId)
-                .limit(50)
-                .addSnapshotListener { snapshots, e ->
-                    if (e != null) {
-                        android.util.Log.w("Firebase", "My videos listen failed.", e)
-                        isMyVideosLoaded = true
-                        checkFinished()
-                        return@addSnapshotListener
-                    }
-                    
-                    if (snapshots != null) {
-                        val list = mutableListOf<UserUploadedVideo>()
-                        for (doc in snapshots) {
-                            try {
-                                val video = doc.toObject(UserUploadedVideo::class.java)?.copy(docId = doc.id)
-                                if (video != null) {
-                                    list.add(video)
-                                }
-                            } catch (ex: Exception) {
-                                android.util.Log.e("Firebase", "Error parsing my doc: ${doc.id}", ex)
-                            }
-                        }
-                        myVideos = list
-                        isMyVideosLoaded = true
-                        checkFinished()
-                    }
+        // My Videos Listener
+        val myListener = firestore.collection("videos")
+            .whereEqualTo("userId", currentUserId)
+            .limit(20)
+            .addSnapshotListener { snapshots, e ->
+                if (e != null) {
+                    isMyVideosLoaded = true
+                    checkFinished()
+                    return@addSnapshotListener
                 }
-        } else {
-            null
-        }
+                if (snapshots != null) {
+                    val list = mutableListOf<UserUploadedVideo>()
+                    for (doc in snapshots) {
+                        doc.toObject(UserUploadedVideo::class.java)?.copy(docId = doc.id)?.let { list.add(it) }
+                    }
+                    myVideos = list
+                    isMyVideosLoaded = true
+                    checkFinished()
+                }
+            }
         
         onDispose {
             approvedListener.remove()
-            myListener?.remove()
+            myListener.remove()
         }
     }
 
     val allCategories = listOf("All", "Bayan", "Recitation", "Nasheed", "Education", "Hadith")
     var selectedCategory by remember { mutableStateOf("All") }
 
-    val combinedVideos = remember(userVideosList.toList(), selectedCategory) {
-        val mapped = userVideosList.mapIndexed { idx, uv ->
-            val playUrl = if (uv.telegramFileId.isNotEmpty() && !TELEGRAM_PROXY_URL.contains("YOUR_SCRIPT_ID")) {
-                "$TELEGRAM_PROXY_URL?action=stream&file_id=${uv.telegramFileId}"
-            } else if (uv.videoUri.startsWith("http")) {
-                uv.videoUri
-            } else if (uv.videoUri.startsWith("content") && uv.userId == currentUserId) {
-                uv.videoUri
-            } else {
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
-            }
-            VideoItem(
-                id = uv.docId?.hashCode() ?: java.util.UUID.randomUUID().hashCode(),
-                url = playUrl ?: "",
-                author = uv.author ?: "Unknown Author",
-                description = uv.description ?: "",
-                category = uv.category ?: "সাধারণ",
-                status = uv.status ?: "PENDING",
-                docId = uv.docId ?: "",
-                userId = uv.userId ?: "",
-                isOfflineMode = uv.isOfflineMode ?: false,
-                telegramFileId = uv.telegramFileId ?: "",
-                viewsCount = uv.viewsCount ?: 0L,
-                likedBy = uv.likedBy ?: emptyList(),
-                sharesCount = uv.sharesCount ?: 0L,
-                title = uv.title ?: "",
-                videoUri = uv.videoUri ?: ""
-            )
-        }.filter { 
-            it.status.trim().equals("APPROVED", ignoreCase = true)
-        } // Only show APPROVED videos in the video category list
+    val combinedVideos = remember(userVideosList.toList(), selectedCategory, currentUserId) {
+        val baseList = if (currentUserId.isEmpty()) {
+             // For guest users, show demo feed
+             demoVideos.map { it.copy(status = "APPROVED") }
+        } else {
+             userVideosList.filter { it.status == "APPROVED" }.map { uv ->
+                val playUrl = if (uv.telegramFileId.isNotEmpty() && !TELEGRAM_PROXY_URL.contains("YOUR_SCRIPT_ID")) {
+                    "$TELEGRAM_PROXY_URL?action=stream&file_id=${uv.telegramFileId}"
+                } else if (uv.videoUri.startsWith("http")) {
+                    uv.videoUri
+                } else {
+                    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
+                }
+                VideoItem(
+                    id = uv.docId?.hashCode() ?: java.util.UUID.randomUUID().hashCode(),
+                    url = playUrl ?: "",
+                    author = uv.author ?: "Unknown Author",
+                    description = uv.description ?: "",
+                    category = uv.category ?: "সাধারণ",
+                    status = uv.status ?: "PENDING",
+                    docId = uv.docId ?: "",
+                    userId = uv.userId ?: "",
+                    isOfflineMode = uv.isOfflineMode ?: false,
+                    telegramFileId = uv.telegramFileId ?: "",
+                    viewsCount = uv.viewsCount ?: 0L,
+                    likedBy = uv.likedBy ?: emptyList(),
+                    sharesCount = uv.sharesCount ?: 0L,
+                    title = uv.title ?: "",
+                    videoUri = uv.videoUri ?: "",
+                    thumbnailUrl = uv.thumbnailUrl ?: ""
+                )
+             }
+        }
 
-        val total = mapped
-        if (selectedCategory == "All") total 
-        else total.filter { it.category == selectedCategory }
+        if (selectedCategory == "All") baseList 
+        else baseList.filter { it.category == selectedCategory }
+    }
+
+    // Load More Function for Infinite Scroll
+    fun loadMoreVideos() {
+        if (currentUserId.isEmpty() || isFetchingMore || lastVisibleDoc == null) return
+        
+        isFetchingMore = true
+        val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        firestore.collection("videos")
+            .whereEqualTo("status", "APPROVED")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .startAfter(lastVisibleDoc!!)
+            .limit(10)
+            .get()
+            .addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val list = mutableListOf<UserUploadedVideo>()
+                    for (doc in snapshots) {
+                        doc.toObject(UserUploadedVideo::class.java)?.copy(docId = doc.id)?.let { list.add(it) }
+                    }
+                    approvedVideos = (approvedVideos + list).distinctBy { it.docId }
+                    lastVisibleDoc = snapshots.documents[snapshots.size() - 1]
+                }
+                isFetchingMore = false
+            }
+            .addOnFailureListener {
+                isFetchingMore = false
+            }
     }
 
     var playingVideoId by remember { 
@@ -327,9 +431,12 @@ fun VideoScreen(
             }
     }
 
-    val mainBgColor = Color(0xFFF0F2F5) // Seamless Facebook gray background
-    Column(modifier = Modifier.fillMaxSize().background(mainBgColor)) {
-        // Global FIXED Top Icons with statusBarsPadding inside
+    // Preloading improvement: use beyondViewportPageCount for smoother transitions
+    val pagerState = rememberPagerState(pageCount = { combinedVideos.size })
+
+    val mainBgColor = Color(0xFFF0F2F5) // Restored Light grey background for feed
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().background(mainBgColor)) {
+        // Global FIXED Top Icons
         VideoTopIcons(
             activeSubTab = activeSubTab,
             onActiveSubTabChange = onActiveSubTabChange,
@@ -343,56 +450,77 @@ fun VideoScreen(
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             when (activeSubTab) {
                 "home" -> {
-                    if (isVideosLoading) {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize().background(Color(0xFFF0F2F5)),
-                            contentPadding = PaddingValues(bottom = 110.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(3) {
-                                VideoPostCardSkeleton()
+                    // Fallback to demo videos if network fetch is empty to avoid blank screen
+                    val displayList = remember(isVideosLoading, combinedVideos) {
+                        if (!isVideosLoading && combinedVideos.isEmpty()) {
+                            demoVideos.map { it.copy(status = "APPROVED") }
+                        } else {
+                            // Ensure the feed is mixed and doesn't prioritize only self videos
+                            combinedVideos
+                        }
+                    }
+
+                    if (isVideosLoading && displayList.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = PrimaryGreen)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(if (com.example.viewmodel.GlobalLanguage.isEnglish) "Loading Feed..." else "ফিড লোড হচ্ছে...", color = Color.Gray, fontSize = 14.sp)
                             }
                         }
-                    } else if (combinedVideos.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "No videos found in this category" else "এই ক্যাটাগরিতে কোনো ভিডিও পাওয়া যায়নি", 
-                                color = Color.DarkGray,
-                                fontWeight = FontWeight.Medium
-                            )
+                    } else if (displayList.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "No videos available. Tap to refresh." else "কোনো ভিডিও পাওয়া যায়নি। রিফ্রেশ করতে ট্যাপ করুন।", 
+                                    color = Color.Black,
+                                    textAlign = TextAlign.Center
+                                )
+                                Button(
+                                    onClick = { isVideosLoading = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                    modifier = Modifier.padding(top = 16.dp)
+                                ) {
+                                    Text("রিফ্রেশ করুন")
+                                }
+                            }
                         }
                     } else {
                         LazyColumn(
                             state = lazyListState,
                             modifier = Modifier.fillMaxSize().background(Color(0xFFF0F2F5)),
-                            contentPadding = PaddingValues(bottom = 110.dp),
-                            verticalArrangement = Arrangement.spacedBy(0.dp) // Card has integrated separator of thickness 8.dp or 10.dp
+                            contentPadding = PaddingValues(bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
-                            itemsIndexed(combinedVideos) { index, video ->
-                                val isLimitExceeded = currentUser == null && 
-                                        viewedNonOfflineVideos.size > 5 && 
-                                        !video.isOfflineMode
+                            itemsIndexed(displayList, key = { _, video -> video.docId }) { index, video ->
+                                val isVisible = playingVideoId == video.docId && isFeedActive
+                                
+                                // Infinite Scroll Trigger
+                                if (index >= displayList.size - 3 && !isFetchingMore) {
+                                    LaunchedEffect(Unit) { loadMoreVideos() }
+                                }
 
                                 FacebookVideoPostCard(
                                     video = video,
-                                    isPlaying = (playingVideoId == video.docId) && isFeedActive,
-                                    onPlayClick = { 
-                                        playingVideoId = if (playingVideoId == video.docId) null else video.docId 
+                                    isPlaying = isVisible,
+                                    onPlayClick = {
+                                        playingVideoId = if (playingVideoId == video.docId) null else video.docId
                                     },
-                                    isLimitExceeded = isLimitExceeded,
+                                    isLimitExceeded = false, // Handled internally now
                                     onRequireLogin = onRequireLogin,
                                     onNavigateToCreatorProfile = onNavigateToCreatorProfile,
                                     onNavigateToSaved = onNavigateToSaved,
                                     dismissedPendingBanners = dismissedPendingBanners
                                 )
-                                
-                                if (index > 0 && (index + 1) % 4 == 0) {
-                                    SuggestedProfilesSection(
-                                        profiles = suggestedProfiles,
-                                        onFollow = { /* Handle Follow */ },
-                                        onRemove = { id -> suggestedProfiles.removeAll { it.id == id } },
-                                        onSeeAll = onNavigateToFriends
-                                    )
+                            }
+
+                            if (isFetchingMore) {
+                                item { 
+                                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = PrimaryGreen, modifier = Modifier.size(24.dp))
+                                    }
                                 }
                             }
                         }
@@ -422,31 +550,22 @@ fun VideoScreen(
 
 private var isGlobalMuted by androidx.compose.runtime.mutableStateOf(false)
 
+private val globalOkHttpClient = okhttp3.OkHttpClient.Builder()
+    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+    .build()
+
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayer(
     videoItem: VideoItem, 
     isSelected: Boolean, 
-    modifier: Modifier = Modifier.fillMaxSize()
+    modifier: Modifier = Modifier.fillMaxSize(),
+    onReadyChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     var isUserPaused by remember(videoItem.id, isSelected) { mutableStateOf(false) }
-    
-    var isViewIncremented by remember(videoItem.docId) { mutableStateOf(false) }
-
-    LaunchedEffect(isSelected) {
-        if (isSelected && videoItem.docId.isNotEmpty() && !videoItem.isOfflineMode && !isViewIncremented) {
-            isViewIncremented = true
-            try {
-                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                db.collection("videos").document(videoItem.docId)
-                    .update("viewsCount", com.google.firebase.firestore.FieldValue.increment(1))
-            } catch (e: Exception) {
-                android.util.Log.e("VideoPlayer", "Error incrementing viewsCount", e)
-            }
-        }
-    }
     
     val needsResolution = videoItem.telegramFileId.isNotEmpty() || 
                           videoItem.url.contains("file_id=") || 
@@ -469,15 +588,11 @@ fun VideoPlayer(
         if (fileId.isNotEmpty()) {
             val resolved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    val client = okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                        .build()
                     val botToken = "8968904429:AAE3Ce849ysMuaxQhdMebsBwyB_nlIPQ1Os"
                     val request = okhttp3.Request.Builder()
                         .url("https://api.telegram.org/bot$botToken/getFile?file_id=$fileId")
                         .build()
-                    client.newCall(request).execute().use { response ->
+                    globalOkHttpClient.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             val responseStr = response.body?.string()
                             if (!responseStr.isNullOrEmpty()) {
@@ -502,12 +617,8 @@ fun VideoPlayer(
         } else if (videoItem.url.startsWith("https://script.google.com")) {
             val resolved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    val client = okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                        .build()
                     val request = okhttp3.Request.Builder().url(videoItem.url).build()
-                    client.newCall(request).execute().use { response ->
+                    globalOkHttpClient.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             val directUrl = response.body?.string()?.trim()
                             if (!directUrl.isNullOrEmpty() && (directUrl.startsWith("http://") || directUrl.startsWith("https://"))) {
@@ -526,9 +637,15 @@ fun VideoPlayer(
     }
 
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var isReady by remember(resolvedUrl) { mutableStateOf(false) }
+    
+    LaunchedEffect(isReady) {
+        onReadyChange(isReady)
+    }
 
     DisposableEffect(resolvedUrl, isSelected) {
         if (resolvedUrl.isEmpty() || !isSelected) {
+            isReady = false
             return@DisposableEffect onDispose {}
         }
         
@@ -537,6 +654,11 @@ fun VideoPlayer(
             repeatMode = Player.REPEAT_MODE_ONE
             playWhenReady = true
             volume = if (isGlobalMuted) 0f else 1f
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    isReady = playbackState == Player.STATE_READY
+                }
+            })
             prepare()
         }
         exoPlayer = player
@@ -544,6 +666,7 @@ fun VideoPlayer(
         onDispose {
             player.release()
             exoPlayer = null
+            isReady = false
         }
     }
 
@@ -589,6 +712,17 @@ fun VideoPlayer(
                 isUserPaused = !isUserPaused
             }
     ) {
+        // Immediate Thumbnail Placeholder to eliminate Black Screen
+        if (videoItem.thumbnailUrl.isNotEmpty() || getYoutubeThumbnail(videoItem.videoUri).isNotEmpty()) {
+            val imageUrl = if (videoItem.thumbnailUrl.isNotEmpty()) videoItem.thumbnailUrl else getYoutubeThumbnail(videoItem.videoUri)
+            coil.compose.AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
+
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -603,6 +737,19 @@ fun VideoPlayer(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Detailed Loading State on top of thumbnail
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !isReady && isSelected,
+            exit = androidx.compose.animation.fadeOut(animationSpec = tween(400))
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)), 
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = PrimaryGreen, modifier = Modifier.size(36.dp))
+            }
+        }
 
         if (isUserPaused) {
             Box(
@@ -667,14 +814,12 @@ fun VideoOverlay(
                 .clickable { onNavigateToCreatorProfile(videoItem.userId, videoItem.author) },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .background(PrimaryGreen, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-            }
+            ProfileLogoDisplay(
+                modifier = Modifier.size(32.dp),
+                userId = videoItem.userId,
+                iconSizeDp = 18,
+                showBorder = false
+            )
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
@@ -1157,7 +1302,7 @@ fun FacebookVideoPostCard(
     // View Increment Logic
     LaunchedEffect(isPlaying) {
         if (isPlaying && video.docId.isNotEmpty()) {
-            delay(3000) // Count as view after 3 seconds of continuous playing
+            delay(4000) // Count as view after 4 seconds of continuous playing (Standard watch threshold)
             try {
                 val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
                 db.collection("videos").document(video.docId)
@@ -1203,21 +1348,14 @@ fun FacebookVideoPostCard(
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
+                ProfileLogoDisplay(
                     modifier = Modifier
                         .size(42.dp)
-                        .background(PrimaryGreen.copy(alpha = 0.15f), CircleShape)
-                        .border(1.5.dp, PrimaryGreen.copy(alpha = 0.3f), CircleShape)
                         .clickable { onNavigateToCreatorProfile(video.userId, video.author) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = null,
-                        tint = PrimaryGreen,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
+                    userId = video.userId,
+                    iconSizeDp = 24,
+                    showBorder = true
+                )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1314,45 +1452,93 @@ fun FacebookVideoPostCard(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.9f)),
+                            .background(Color.Black.copy(alpha = 0.5f)) // Simple dark overlay
+                            .background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.3f), Color.Black.copy(alpha = 0.8f)))),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp)
-                            )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "Login required to watch more",
+                                text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Login to Watch Full Video" else "🔒 সম্পূর্ণ ভিডিও দেখতে লগইন করুন",
                                 color = Color.White,
-                                fontSize = 14.sp
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
                             )
+                            Spacer(modifier = Modifier.height(12.dp))
                             Button(
                                 onClick = onRequireLogin,
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.height(44.dp).fillMaxWidth(0.6f)
                             ) {
-                                Text("Login")
+                                Text(
+                                    if (com.example.viewmodel.GlobalLanguage.isEnglish) "Login Now" else "লগইন করুন",
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
-                } else if (isPlaying) {
-                    VideoPlayer(videoItem = video, isSelected = true, modifier = Modifier.fillMaxSize())
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable { onPlayClick() }
-                            .background(Color(0xFF1E1F22)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(60.dp)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        VideoPlayer(
+                            videoItem = video, 
+                            isSelected = isPlaying, 
+                            modifier = Modifier.fillMaxSize()
                         )
+                        
+                        if (!isPlaying) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable { onPlayClick() }
+                                    .background(Color.Black.copy(alpha = 0.1f)), // Subtle tint
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (video.thumbnailUrl.isNotEmpty() || getYoutubeThumbnail(video.videoUri).isNotEmpty()) {
+                                     androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                                         val imageUrl = if (video.thumbnailUrl.isNotEmpty()) video.thumbnailUrl else getYoutubeThumbnail(video.videoUri)
+                                         coil.compose.AsyncImage(
+                                             model = imageUrl,
+                                             contentDescription = null,
+                                             modifier = Modifier.fillMaxSize(),
+                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                         )
+                                         // Play icon overlay
+                                         Icon(
+                                             imageVector = Icons.Default.PlayArrow,
+                                             contentDescription = null,
+                                             tint = Color.White.copy(alpha = 0.8f),
+                                             modifier = Modifier.size(60.dp).align(Alignment.Center)
+                                         )
+                                     }
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(60.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1366,10 +1552,11 @@ fun FacebookVideoPostCard(
             ) {
                 // Left side: Likes
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (video.likedBy.isNotEmpty()) {
+                    val count = video.likedBy.size + if (isLiked && !video.likedBy.contains(currentUserId)) 1 else if (!isLiked && video.likedBy.contains(currentUserId)) -1 else 0
+                    if (count > 0) {
                         Icon(Icons.Filled.ThumbUp, contentDescription = null, tint = Color(0xFF1877F2), modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = formatNumber(video.likedBy.size.toLong()), fontSize = 12.sp, color = Color.Gray)
+                        Text(text = formatNumber(count.toLong()), fontSize = 12.sp, color = Color.Gray)
                     }
                 }
                 
@@ -1710,14 +1897,14 @@ fun VideoPostCardSkeleton() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp),
+            .padding(bottom = 1.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = androidx.compose.ui.graphics.RectangleShape,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             // Header: Avatar + Author + Category Info
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 ShimmerPlaceholder(
                     modifier = Modifier.size(40.dp),
                     shape = CircleShape
@@ -1725,7 +1912,7 @@ fun VideoPostCardSkeleton() {
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     ShimmerPlaceholder(
-                        modifier = Modifier.width(140.dp).height(14.dp)
+                        modifier = Modifier.width(140.dp).height(12.dp)
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     ShimmerPlaceholder(
@@ -1733,52 +1920,54 @@ fun VideoPostCardSkeleton() {
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(14.dp))
-            // Description lines
+            // Title and description placeholders
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) {
+                ShimmerPlaceholder(
+                    modifier = Modifier.fillMaxWidth(0.9f).height(14.dp)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                ShimmerPlaceholder(
+                    modifier = Modifier.fillMaxWidth(0.7f).height(12.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            // Video placeholder container - YouTube/Facebook Feed aspect ratio
             ShimmerPlaceholder(
-                modifier = Modifier.fillMaxWidth().height(12.dp)
+                modifier = Modifier.fillMaxWidth().aspectRatio(1.77f),
+                shape = androidx.compose.ui.graphics.RectangleShape
             )
-            Spacer(modifier = Modifier.height(6.dp))
-            ShimmerPlaceholder(
-                modifier = Modifier.fillMaxWidth(0.7f).height(12.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            // Video placeholder container
-            ShimmerPlaceholder(
-                modifier = Modifier.fillMaxWidth().aspectRatio(1.2f),
-                shape = RoundedCornerShape(0.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+            
             // Likes + views row
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Row {
+                    ShimmerPlaceholder(modifier = Modifier.size(16.dp), shape = CircleShape)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    ShimmerPlaceholder(modifier = Modifier.width(30.dp).height(10.dp))
+                }
                 ShimmerPlaceholder(
-                    modifier = Modifier.width(50.dp).height(12.dp)
-                )
-                ShimmerPlaceholder(
-                    modifier = Modifier.width(100.dp).height(12.dp)
+                    modifier = Modifier.width(80.dp).height(10.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = Color(0xFFE4E6EB), thickness = 0.5.dp)
-            Spacer(modifier = Modifier.height(8.dp))
+            
+            HorizontalDivider(color = Color(0xFFF0F2F5), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 12.dp))
+            
             // Bottom action tabs (Like, Share, Save)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceAround
             ) {
-                ShimmerPlaceholder(
-                    modifier = Modifier.width(80.dp).height(24.dp)
-                )
-                ShimmerPlaceholder(
-                    modifier = Modifier.width(80.dp).height(24.dp)
-                )
-                ShimmerPlaceholder(
-                    modifier = Modifier.width(80.dp).height(24.dp)
-                )
+                repeat(3) {
+                    ShimmerPlaceholder(
+                        modifier = Modifier.width(80.dp).height(24.dp),
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                }
             }
+            HorizontalDivider(color = Color(0xFFF0F2F5), thickness = 8.dp)
         }
     }
 }

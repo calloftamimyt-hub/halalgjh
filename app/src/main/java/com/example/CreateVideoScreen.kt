@@ -31,6 +31,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import android.app.Activity
+import android.content.Intent
+import android.os.Build
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -280,28 +282,25 @@ fun CreateVideoScreen(
                         )
                         VideoStorage.saveVideo(context, videoItem)
                         
-                        // Send to Telegram in background
-                        val scope = kotlinx.coroutines.MainScope()
-                        selectedVideoUri?.let { uri ->
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                sendVideoToTelegram(context, uri, title, hashtags.joinToString(" "), videoItem.docId)
-                            }
+                        // Start VideoUploadService for background upload with notification
+                        val intent = Intent(context, VideoUploadService::class.java).apply {
+                            putExtra("videoUri", selectedVideoUri.toString())
+                            putExtra("title", title)
+                            putExtra("description", videoItem.description)
+                            putExtra("docId", videoItem.docId)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(intent)
+                        } else {
+                            context.startService(intent)
                         }
                         
-                        showSuccessDialog = true
+                        // Navigate back immediately as requested
+                        onUploadSuccess()
                     },
                     onBack = { createStep = 1 }
                 )
             }
-        }
-
-        if (showSuccessDialog) {
-            CongratulationsDialog(
-                onConfirm = {
-                    showSuccessDialog = false
-                    onUploadSuccess()
-                }
-            )
         }
     }
 }
@@ -986,9 +985,7 @@ fun VideoUploadView(
     var isDataSaverOn by remember { mutableStateOf(false) } // feature 11
     var isVerticalHeightFit by remember { mutableStateOf(true) } // feature 12
 
-    // Upload animation simulation variables
-    var showUploadingProgressDialog by remember { mutableStateOf(false) }
-    var uploadProgressValue by remember { mutableStateOf(0.0f) }
+    // Removed simulated upload progress dialog as requested by user for faster flow
 
     val categoryOptions = listOf("Bayan", "Recitation", "Nasheed", "Education", "Hadith")
 
@@ -1411,27 +1408,17 @@ fun VideoUploadView(
                             if (titleInput.trim().isEmpty()) {
                                 Toast.makeText(context, "দয়া করে ভিডিওর একটি বিবরণ বা শিরোনাম লিখুন!", Toast.LENGTH_SHORT).show()
                             } else {
-                                showUploadingProgressDialog = true
-                                uploadProgressValue = 0f
-                                scope.launch {
-                                    while (uploadProgressValue < 1.0f) {
-                                        delay(120)
-                                        uploadProgressValue += 0.08f
-                                    }
-                                    showUploadingProgressDialog = false
-                                    
-                                    onUploadClicked(
-                                        titleInput,
-                                        hashtagsList.toList(),
-                                        mapOf(
-                                            "category" to deenCategory,
-                                            "offlineMode" to isOfflineMode,
-                                            "autoSubtitles" to isAutoSubtitles,
-                                            "commentModeration" to isCommentModerationOn,
-                                            "hideViews" to isHideViewsCount
-                                        )
+                                onUploadClicked(
+                                    titleInput,
+                                    hashtagsList.toList(),
+                                    mapOf(
+                                        "category" to deenCategory,
+                                        "offlineMode" to isOfflineMode,
+                                        "autoSubtitles" to isAutoSubtitles,
+                                        "commentModeration" to isCommentModerationOn,
+                                        "hideViews" to isHideViewsCount
                                     )
-                                }
+                                )
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1877F2)),
@@ -1450,50 +1437,6 @@ fun VideoUploadView(
                 }
             }
         }
-    }
-
-    // Animated full circular uploading progress indicator dialog
-    if (showUploadingProgressDialog) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = {
-                Text(
-                    text = "দ্বীনী সার্ভারে ভিডিও আপলোড হচ্ছে",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color(0xFF1E293B)
-                )
-            },
-            text = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp)
-                ) {
-                    CircularProgressIndicator(
-                        progress = { uploadProgressValue.coerceIn(0f, 1f) },
-                        color = Color(0xFF1877F2),
-                        strokeWidth = 6.dp,
-                    )
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Text(
-                        text = "ভিডিও প্রসেসিং ও আপলোড সম্পন্ন হচ্ছেঃ ${(uploadProgressValue * 100).toInt().toString().toBengali()}%",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF475569)
-                    )
-                    Text(
-                        text = "হালাল মোডারেশন এআই নিয়মাবলী যাচাই করা হচ্ছে...",
-                        fontSize = 11.sp,
-                        color = Color(0xFF64748B),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-            },
-            confirmButton = {}
-        )
     }
 
     // Modern Dialog modal to pick Islamic Category removed in favor of full screen screen
@@ -1696,88 +1639,4 @@ fun ReelSettingRow(
     }
 }
 
-private suspend fun sendVideoToTelegram(
-    context: Context,
-    videoUri: Uri,
-    title: String,
-    description: String,
-    docId: String
-) {
-    val chatId = "-1002647379129"
-    val botToken = "8968904429:AAE3Ce849ysMuaxQhdMebsBwyB_nlIPQ1Os"
-    val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(120, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
-
-    try {
-        val bodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("chat_id", chatId)
-            .addFormDataPart("caption", "🎬 **নতুন ভিডিও আপলোড হয়েছে!**\n\n**ID:** $docId\n**শিরোনাম:** $title\n**বিবরণ:** $description\n\nএডমিন, দয়া করে ভিডিওটি পর্যালোচনা করে অ্যাপ্রুভ বা রিজেক্ট করুন।")
-            .addFormDataPart("reply_markup", """
-                {
-                    "inline_keyboard": [
-                        [
-                            {"text": "Approve ✅", "callback_data": "approve_$docId"},
-                            {"text": "Reject ❌", "callback_data": "reject_$docId"}
-                        ],
-                        [
-                            {"text": "Permanently Delete 🗑️", "callback_data": "delete_$docId"}
-                        ]
-                    ]
-                }
-            """.trimIndent())
-
-        val videoBody = object : RequestBody() {
-            override fun contentType(): MediaType? = "video/mp4".toMediaTypeOrNull()
-            override fun writeTo(sink: okio.BufferedSink) {
-                context.contentResolver.openInputStream(videoUri)?.use { input ->
-                    val buffer = ByteArray(8192)
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        sink.write(buffer, 0, read)
-                    }
-                }
-            }
-        }
-        
-        bodyBuilder.addFormDataPart("video", "upload.mp4", videoBody)
-
-        val request = Request.Builder()
-            .url("https://api.telegram.org/bot$botToken/sendVideo")
-            .post(bodyBuilder.build())
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            if (response.isSuccessful) {
-                val responseStr = response.body?.string()
-                if (responseStr != null) {
-                    try {
-                        val jsonObj = org.json.JSONObject(responseStr)
-                        if (jsonObj.optBoolean("ok")) {
-                            val result = jsonObj.optJSONObject("result")
-                            val videoObj = result?.optJSONObject("video")
-                            val fileId = videoObj?.optString("file_id")
-                            if (!fileId.isNullOrEmpty()) {
-                                com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                                    .collection("videos")
-                                    .document(docId)
-                                    .update("telegramFileId", fileId)
-                                    .addOnSuccessListener {
-                                        android.util.Log.d("TelegramAPI", "Successfully updated telegramFileId in Firestore to: $fileId")
-                                    }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("TelegramAPI", "Error parsing sendVideo response", e)
-                    }
-                }
-            } else {
-                android.util.Log.e("TelegramAPI", "Error uploading to Telegram: ${response.body?.string()}")
-            }
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
-}
+// Removed local sendVideoToTelegram implementation as it is now handled by VideoUploadService

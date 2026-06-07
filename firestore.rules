@@ -7,8 +7,8 @@ service cloud.firestore {
     // ======================================================================
     match /videos/{docId} {
       
-      // 1. Read: Publicly readable for all users (guests and signed-in)
-      allow read: if true;
+      // 1. Read: Only logged-in users can read the real video feed data
+      allow read: if request.auth != null;
 
       // 2. Create: Only logged-in users can upload a video, forcing userId to match their uid
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
@@ -31,11 +31,10 @@ service cloud.firestore {
     // 🔔 Secure remote_notifications Collection Rules
     // ======================================================================
     match /remote_notifications/{docId} {
-      allow read: if request.auth != null && resource.data.toId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.actorId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.toId == request.auth.uid && 
-                       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['toId', 'actorId', 'type', 'title', 'body', 'timestamp']);
-      allow delete: if request.auth != null && resource.data.toId == request.auth.uid;
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
     // ======================================================================
@@ -43,14 +42,9 @@ service cloud.firestore {
     // ======================================================================
     match /follows/{docId} {
       allow read: if true;
-      allow create: if request.auth != null && 
-                       request.resource.data.followerId == request.auth.uid &&
-                       docId == request.auth.uid + "_" + request.resource.data.creatorId;
-      allow update: if request.auth != null && 
-                       resource.data.followerId == request.auth.uid &&
-                       request.resource.data.followerId == request.auth.uid &&
-                       request.resource.data.creatorId == resource.data.creatorId;
-      allow delete: if request.auth != null && resource.data.followerId == request.auth.uid;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
     }
 
     // ======================================================================
@@ -69,6 +63,27 @@ service cloud.firestore {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // ======================================================================
+    // 🛡️ Secure Parental Control Collections Rules (প্যারেন্টাল কন্ট্রোল)
+    // ======================================================================
+    
+    // 1. Parental Pairing Codes (পিন কোড মেলাবার সাময়িক কালেকশন)
+    match /pairing_codes/{codeId} {
+      allow read, write: if true; // ওপেন যাতে যেকোনো ডিভাইস কোড ক্রিয়েট ও চেক করতে পারে
+    }
+
+    // 2. Parental Links (ডিভাইস লিঙ্কিং কালেকশন)
+    match /parental_links/{linkId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null;
+    }
+
+    // 3. Parental Configurations (স্ক্রিন টাইম, বাউন্ডারি ও লাইভ কোঅর্ডিনেটস)
+    match /parental_configs/{childUid} {
+      allow read: if true; // যাতে চাইল্ড মোড চালুর সময় লাইভ আপডেট যেকোনো মুহূর্তে পড়তে পারে
+      allow write: if request.auth != null;
     }
 
   }

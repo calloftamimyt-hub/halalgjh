@@ -107,12 +107,37 @@ fun SavedPostsScreen(
                     verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     items(savedVideos) { video ->
-                        CreatorVideoThumbnail(
+                        val playUrl = if (video.telegramFileId.isNotEmpty() && !TELEGRAM_PROXY_URL.contains("YOUR_SCRIPT_ID")) {
+                            "$TELEGRAM_PROXY_URL?action=stream&file_id=${video.telegramFileId}"
+                        } else if (video.videoUri.startsWith("http")) {
+                            video.videoUri
+                        } else {
+                            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
+                        }
+                        
+                        val videoItem = VideoItem(
+                            id = video.docId.hashCode(),
+                            url = playUrl,
+                            author = video.author,
+                            description = video.description,
+                            category = video.category,
+                            status = video.status,
+                            docId = video.docId,
+                            userId = video.userId,
+                            viewsCount = video.viewsCount,
+                            likedBy = video.likedBy,
+                            sharesCount = video.sharesCount,
+                            title = video.title,
+                            videoUri = video.videoUri
+                        )
+                        CreatorVideoGridItem(
                             video = video,
+                            videoItem = videoItem,
+                            isPlaying = false,
+                            onPlayToggle = { onVideoClick(video) },
                             isMyProfile = false,
                             onEditClick = {},
-                            onDeleteClick = {},
-                            onClick = { onVideoClick(video) }
+                            onDeleteClick = {}
                         )
                     }
                 }

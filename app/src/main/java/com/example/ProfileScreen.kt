@@ -19,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -37,6 +38,13 @@ import java.util.Locale
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.example.ui.theme.*
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import java.io.File
+import java.io.FileOutputStream
 
 // Data class representing selectable custom Profile Avatars 
 data class ProfileLogoOption(
@@ -66,7 +74,8 @@ private fun formatTrackerDateToBengali(dateKey: String): String {
 fun ProfileScreen(
     onNavigateToTracker: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToSaved: () -> Unit
+    onNavigateToSaved: () -> Unit,
+    onNavigateToParentalControl: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("profile_prefs", Context.MODE_PRIVATE) }
@@ -94,6 +103,32 @@ fun ProfileScreen(
     var userGender by remember { mutableStateOf(sharedPrefs.getString("user_gender", "") ?: "") }
     var locationSetting by remember { mutableStateOf(sharedPrefs.getString("location", "") ?: "") }
     var selectedLogoIndex by remember { mutableStateOf(sharedPrefs.getInt("selected_logo_index", 0)) }
+    var customAvatarUri by remember { mutableStateOf(sharedPrefs.getString("custom_avatar_uri", "") ?: "") }
+
+    // Fetch profile data from Firestore on login to ensure persistence even after data clear
+    LaunchedEffect(currentUser) {
+        currentUser?.uid?.let { uid ->
+            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            db.collection("users").document(uid).get()
+                .addOnSuccessListener { doc ->
+                    if (doc.exists()) {
+                        val name = doc.getString("name") ?: ""
+                        val image = doc.getString("profileImageUrl") ?: ""
+                        val index = doc.getLong("selectedLogoIndex")?.toInt() ?: 0
+                        
+                        if (name.isNotEmpty()) userName = name
+                        customAvatarUri = image
+                        selectedLogoIndex = index
+                        
+                        sharedPrefs.edit()
+                            .putString("user_name", name)
+                            .putString("custom_avatar_uri", image)
+                            .putInt("selected_logo_index", index)
+                            .apply()
+                    }
+                }
+        }
+    }
     
     // Auth States
     var showLoginScreen by remember { mutableStateOf(false) }
@@ -198,15 +233,17 @@ fun ProfileScreen(
                 currentGender = userGender,
                 currentLocation = locationSetting,
                 currentLogoIndex = selectedLogoIndex,
+                currentCustomAvatarUri = customAvatarUri,
                 logoOptions = logoOptions,
                 onBack = { showEditFullScreen = false },
-                onSave = { name, email, phone, gender, location, logoIdx ->
+                onSave = { name, email, phone, gender, location, logoIdx, customUri ->
                     userName = name
                     userEmail = email
                     userPhone = phone
                     userGender = gender
                     locationSetting = location
                     selectedLogoIndex = logoIdx
+                    customAvatarUri = customUri
                     
                     // Sync with Firebase Profile if logged in
                     currentUser?.let { user ->
@@ -214,6 +251,19 @@ fun ProfileScreen(
                             .setDisplayName(name)
                             .build()
                         user.updateProfile(profileUpdates)
+
+                        // Save to Firestore users collection
+                        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                        db.collection("users").document(user.uid).set(
+                            mapOf(
+                                "name" to name,
+                                "email" to email,
+                                "profileImageUrl" to customUri,
+                                "selectedLogoIndex" to logoIdx,
+                                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                            ),
+                            com.google.firebase.firestore.SetOptions.merge()
+                        )
                     }
                     
                     sharedPrefs.edit().apply {
@@ -223,6 +273,7 @@ fun ProfileScreen(
                         putString("user_gender", gender)
                         putString("location", location)
                         putInt("selected_logo_index", logoIdx)
+                        putString("custom_avatar_uri", customUri)
                         apply()
                     }
                     showEditFullScreen = false
@@ -260,107 +311,146 @@ fun ProfileScreen(
                     .fillMaxSize()
                     .background(BgLight)
                     .verticalScroll(rememberScrollState())
-                    .padding(bottom = 80.dp)
             ) {
-                // Safe spacing
-                Spacer(modifier = Modifier.statusBarsPadding())
-
-                // Top Header Removed as requested
-
-                // 1. Decorative custom height Profile Avatar Card
+                // 1. Redesigned Premium Profile Header Card matching the mock - Full Screen Edge-to-Edge
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
+                    border = null,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(72.dp)
-                        .padding(horizontal = 16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Drawing custom selected logo avatar
-                        val selectedLogo = logoOptions.getOrNull(selectedLogoIndex) ?: logoOptions[0]
+                        // Top fresh light-green/mint backdrop area colored premium green (PrimaryGreen)
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .background(selectedLogo.bgColor, CircleShape)
-                                .border(1.5.dp, selectedLogo.color, CircleShape),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .height(85.dp)
+                                .background(PrimaryGreen)
                         ) {
-                            Icon(
-                                imageVector = selectedLogo.icon,
-                                contentDescription = "ব্যবহারকারীর অবয়ব",
-                                tint = selectedLogo.color,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        // Profile details
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = if (currentUser != null) userName else (if (GlobalLanguage.isEnglish) "Not Logged In" else "লগইন করা নেই"),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = TextDark
-                            )
-                            Text(
-                                text = if (currentUser != null) userEmail else (if (GlobalLanguage.isEnglish) "Join the community" else "আমাদের কমিউনিটিতে যোগ দিন"),
-                                fontSize = 11.sp,
-                                color = TextGray
-                            )
-                        }
-
-                        // Badge Category or Login/SignUp buttons
-                        if (currentUser != null) {
+                            // Artistic light circular vector designs to give a modern gradient look
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                drawCircle(
+                                    color = Color.White.copy(alpha = 0.15f),
+                                    radius = 45.dp.toPx(),
+                                    center = Offset(30.dp.toPx(), size.height - 15.dp.toPx())
+                                )
+                                drawCircle(
+                                    color = Color.White.copy(alpha = 0.15f),
+                                    radius = 55.dp.toPx(),
+                                    center = Offset(size.width - 40.dp.toPx(), size.height - 25.dp.toPx())
+                                )
+                            }
+                            
+                            // White overlapping circular frame
                             Box(
                                 modifier = Modifier
-                                    .background(PrimaryGreen.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .size(96.dp)
+                                    .align(Alignment.BottomCenter)
+                                    .offset(y = 48.dp) // half-height overlap
+                                    .background(Color.White, CircleShape)
+                                    .border(1.dp, Color(0xFFE5E7EB), CircleShape),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Premium User" else "প্রিমিয়াম ইউজার",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PrimaryGreen
-                                )
-                            }
-                        } else {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Login" else "লগইন",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PrimaryGreen,
-                                    modifier = Modifier
-                                        .clickable { showLoginScreen = true }
-                                        .padding(4.dp)
-                                )
-                                Text(
-                                    text = " / ",
-                                    fontSize = 11.sp,
-                                    color = TextGray
-                                )
-                                Text(
-                                    text = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Register" else "সাইন আপ",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PrimaryGreen,
-                                    modifier = Modifier
-                                        .clickable { showRegisterScreen = true }
-                                        .padding(4.dp)
+                                ProfileLogoDisplay(
+                                    modifier = Modifier.size(86.dp),
+                                    userId = currentUser?.uid ?: "",
+                                    iconSizeDp = 44,
+                                    showBorder = false
                                 )
                             }
                         }
+                        
+                        Spacer(modifier = Modifier.height(60.dp)) // Spacer for overlapping avatar offset
+                        
+                        val isEn = com.example.viewmodel.GlobalLanguage.isEnglish
+                        
+                        if (currentUser != null) {
+                            // Bold Greeting carriers only user's name when logged in. Nothing else is visible.
+                            Text(
+                                text = userName,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                color = TextDark,
+                                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp)
+                            )
+                        } else {
+                            // When not logged in: show the application name "Halal Circle"
+                            Text(
+                                text = if (isEn) "Halal Circle" else "হালাল সার্কেল",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                color = TextDark,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            // Subtitle Space replacing the dynamic application name
+                            Text(
+                                text = if (isEn) "Please log in to save your app settings, bookmarks, and other data."
+                                       else "আপনার অ্যাপের সেটিংস, বুকমার্ক ও অন্যান্য তথ্য সেভ রাখতে লগইন করুন",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Normal,
+                                textAlign = TextAlign.Center,
+                                color = TextGray,
+                                lineHeight = 18.sp,
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            )
+                            
+                            Spacer(modifier = Modifier.height(20.dp))
+                            
+                            // Log In and Sign Up buttons side by side - both colored green
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Button(
+                                    onClick = { showLoginScreen = true },
+                                    shape = RoundedCornerShape(30.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = PrimaryGreen
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(46.dp)
+                                ) {
+                                    Text(
+                                        text = if (isEn) "Log In" else "লগইন করুন",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                                
+                                Button(
+                                    onClick = { showRegisterScreen = true },
+                                    shape = RoundedCornerShape(30.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = PrimaryGreen
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(46.dp)
+                                ) {
+                                    Text(
+                                        text = if (isEn) "Sign Up" else "সাইন আপ",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(20.dp))
                     }
                 }
 
@@ -401,19 +491,6 @@ fun ProfileScreen(
 
                         ProfileDivider()
 
-                        // Parental Control
-                        ProfileOptionRow(
-                            title = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Parental Control" else "প্যারেন্টাল কন্ট্রোল",
-                            icon = if (isParentalControlEnabled) Icons.Filled.FamilyRestroom else Icons.Outlined.FamilyRestroom,
-                            iconColor = Color(0xFFD97706),
-                            onClick = {
-                                activeModalTitle = if (com.example.viewmodel.GlobalLanguage.isEnglish) "Parental Control" else "প্যারেন্টাল কন্ট্রোল"
-                                currentSelectedFeature = "parental"
-                            }
-                        )
-
-                        ProfileDivider()
-
                         // Auto Silent
                         ProfileOptionRow(
                             title = "অটো সাইলেন্ট",
@@ -445,18 +522,6 @@ fun ProfileScreen(
                             iconColor = Color(0xFFDC2626),
                             onClick = {
                                 showWebsiteBlockerFullScreen = true
-                            }
-                        )
-
-                        ProfileDivider()
-
-                        // Screen Time
-                        ProfileOptionRow(
-                            title = "স্ক্রিন টাইম",
-                            icon = Icons.Outlined.Timer,
-                            iconColor = Color(0xFF0369A1),
-                            onClick = {
-                                showScreenTimeFullScreen = true
                             }
                         )
 
@@ -536,6 +601,14 @@ fun ProfileScreen(
                             icon = Icons.Outlined.Settings,
                             iconColor = Color(0xFF4B5563),
                             onClick = onNavigateToSettings
+                        )
+
+                        ProfileDivider()
+                        ProfileOptionRow(
+                            title = if (GlobalLanguage.isEnglish) "Parental Control" else "প্যারেন্টাল কন্ট্রোল",
+                            icon = Icons.Outlined.Shield,
+                            iconColor = Color(0xFF10B981),
+                            onClick = onNavigateToParentalControl
                         )
 
                         // If logged in, show logout and delete account
@@ -811,9 +884,10 @@ fun EditProfileScreen(
     currentGender: String,
     currentLocation: String,
     currentLogoIndex: Int,
+    currentCustomAvatarUri: String,
     logoOptions: List<ProfileLogoOption>,
     onBack: () -> Unit,
-    onSave: (name: String, email: String, phone: String, gender: String, location: String, logoIndex: Int) -> Unit
+    onSave: (name: String, email: String, phone: String, gender: String, location: String, logoIndex: Int, customUri: String) -> Unit
 ) {
     var editName by remember { mutableStateOf(currentName) }
     var editEmail by remember { mutableStateOf(currentEmail) }
@@ -821,14 +895,96 @@ fun EditProfileScreen(
     var editGender by remember { mutableStateOf(currentGender) }
     var editLocation by remember { mutableStateOf(currentLocation) }
     var editLogoIndex by remember { mutableIntStateOf(currentLogoIndex) }
+    var editCustomAvatarUri by remember { mutableStateOf(currentCustomAvatarUri) }
+    var isUploadingToTelegram by remember { mutableStateOf(false) }
+    
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { selectedUri ->
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    isUploadingToTelegram = true
+                    val copiedFile = java.io.File(context.filesDir, "custom_profile_picture.jpg")
+                    try {
+                        context.contentResolver.openInputStream(selectedUri)?.use { inputStream ->
+                            val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                            if (bitmap != null) {
+                                java.io.FileOutputStream(copiedFile).use { outStream ->
+                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, outStream)
+                                }
+                            } else {
+                                context.contentResolver.openInputStream(selectedUri)?.use { input ->
+                                    java.io.FileOutputStream(copiedFile).use { output ->
+                                        input.copyTo(output)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (ex: Exception) {
+                        ex.printStackTrace()
+                        context.contentResolver.openInputStream(selectedUri)?.use { input ->
+                            java.io.FileOutputStream(copiedFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                    
+                    val fileUriStr = Uri.fromFile(copiedFile).toString()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        editCustomAvatarUri = fileUriStr
+                    }
+                    
+                    val chatId = "-1002647379129"
+                    val botToken = "8968904429:AAE3Ce849ysMuaxQhdMebsBwyB_nlIPQ1Os"
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                        
+                    val bodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
+                        .addFormDataPart("chat_id", chatId)
+                        .addFormDataPart("caption", "👤 **নতুন প্রোফাইল ছবি আপডেট করা হয়েছে!**\n\n**ব্যবহারকারীর নাম:** $editName")
+                        
+                    val fileBody = RequestBody.create("image/jpeg".toMediaTypeOrNull(), copiedFile)
+                    bodyBuilder.addFormDataPart("photo", "profile.jpg", fileBody)
+                    
+                    val request = Request.Builder()
+                        .url("https://api.telegram.org/bot$botToken/sendPhoto")
+                        .post(bodyBuilder.build())
+                        .build()
+                        
+                    client.newCall(request).execute().use { response ->
+                        val responseBody = response.body?.string()
+                        android.util.Log.d("TelegramProfilePic", "Upload success: ${response.isSuccessful}, body: $responseBody")
+                        if (!response.isSuccessful) {
+                            throw Exception("HTTP ${response.code}: $responseBody")
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "টেলিগ্রামে ফটো পাঠাতে ব্যর্থ হয়েছে: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                } finally {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        isUploadingToTelegram = false
+                    }
+                }
+            }
+        }
+    }
 
     BackHandler(onBack = onBack)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BgLight)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(BgLight)
+        ) {
         // Top Navigation Header bar
         Row(
             modifier = Modifier
@@ -851,7 +1007,7 @@ fun EditProfileScreen(
             )
             TextButton(
                 onClick = {
-                    onSave(editName, editEmail, editPhone, editGender, editLocation, editLogoIndex)
+                    onSave(editName, editEmail, editPhone, editGender, editLocation, editLogoIndex, editCustomAvatarUri)
                 }
             ) {
                 Text(
@@ -891,21 +1047,64 @@ fun EditProfileScreen(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     
-                    // Large Preview bubble
+                    // Large Preview bubble with camera overlay badge
                     val activeOption = logoOptions.getOrNull(editLogoIndex) ?: logoOptions[0]
                     Box(
                         modifier = Modifier
-                            .size(80.dp)
-                            .background(activeOption.bgColor, CircleShape)
-                            .border(2.dp, activeOption.color, CircleShape),
-                        contentAlignment = Alignment.Center
+                            .size(84.dp)
+                            .align(Alignment.CenterHorizontally)
                     ) {
-                        Icon(
-                            imageVector = activeOption.icon,
-                            contentDescription = "Active Logo",
-                            tint = activeOption.color,
-                            modifier = Modifier.size(44.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .align(Alignment.TopStart)
+                                .background(
+                                    if (editCustomAvatarUri.isNotEmpty()) Color.LightGray else activeOption.bgColor,
+                                    CircleShape
+                                )
+                                .border(2.dp, activeOption.color, CircleShape)
+                                .clickable {
+                                    galleryLauncher.launch("image/*")
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (editCustomAvatarUri.isNotEmpty()) {
+                                coil.compose.AsyncImage(
+                                    model = editCustomAvatarUri,
+                                    contentDescription = "Chosen Avatar",
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(76.dp)
+                                        .clip(CircleShape)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = activeOption.icon,
+                                    contentDescription = "Active Logo",
+                                    tint = activeOption.color,
+                                    modifier = Modifier.size(44.dp)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .align(Alignment.BottomEnd)
+                                .background(PrimaryGreen, CircleShape)
+                                .border(1.5.dp, Color.White, CircleShape)
+                                .clickable {
+                                    galleryLauncher.launch("image/*")
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "গ্যালারি ওপেন করুন",
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -1076,7 +1275,7 @@ fun EditProfileScreen(
                     if (editName.isBlank()) {
                         editName = "তাহমিদ আহমেদ"
                     }
-                    onSave(editName, editEmail, editPhone, editGender, editLocation, editLogoIndex)
+                    onSave(editName, editEmail, editPhone, editGender, editLocation, editLogoIndex, editCustomAvatarUri)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                 modifier = Modifier
@@ -1090,6 +1289,36 @@ fun EditProfileScreen(
             }
         }
     }
+
+    if (isUploadingToTelegram) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .clickable(enabled = false) {},
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(color = PrimaryGreen, modifier = Modifier.size(24.dp))
+                    Text(
+                        text = "ফটো আপলোড করা হচ্ছে...",
+                        fontSize = 14.sp,
+                        color = TextDark,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
 }
 
 // Full screen Tracker History view displaying historical records inside dynamic rectangular light rounded cards

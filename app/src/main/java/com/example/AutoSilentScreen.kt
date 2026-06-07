@@ -41,6 +41,12 @@ fun AutoSilentScreen(
     
     var isEnabled by remember { mutableStateOf(prefs.getBoolean("auto_silent", true)) }
     
+    var isManualEnabled by remember { mutableStateOf(prefs.getBoolean("manual_silent_enabled", false)) }
+    var manualStartHour by remember { mutableIntStateOf(prefs.getInt("manual_silent_start_hour", 22)) }
+    var manualStartMinute by remember { mutableIntStateOf(prefs.getInt("manual_silent_start_minute", 0)) }
+    var manualEndHour by remember { mutableIntStateOf(prefs.getInt("manual_silent_end_hour", 6)) }
+    var manualEndMinute by remember { mutableIntStateOf(prefs.getInt("manual_silent_end_minute", 0)) }
+    
     // Permission state
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     var hasPermission by remember { 
@@ -53,11 +59,19 @@ fun AutoSilentScreen(
 
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(Unit) {
-        // Refresh permission state when returning to screen
-        hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            notificationManager.isNotificationPolicyAccessGranted
-        } else true
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    notificationManager.isNotificationPolicyAccessGranted
+                } else true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     Column(
@@ -131,6 +145,137 @@ fun AutoSilentScreen(
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryGreen)
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Manual Silent Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, if (isManualEnabled) PrimaryGreen.copy(alpha = 0.5f) else Color(0xFFE5E7EB)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(if (isManualEnabled) PrimaryGreen.copy(alpha = 0.1f) else Color(0xFFF3F4F6), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isManualEnabled) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                                    contentDescription = null,
+                                    tint = if (isManualEnabled) PrimaryGreen else TextGray,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("ম্যানুয়াল সাইলেন্ট মোড", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextDark)
+                                Text("আপনার নিজের নির্ধারিত সময়ে সাইলেন্ট করুন", fontSize = 12.sp, color = TextGray)
+                            }
+                        }
+                        Switch(
+                            checked = isManualEnabled,
+                            onCheckedChange = {
+                                isManualEnabled = it
+                                prefs.edit().putBoolean("manual_silent_enabled", it).apply()
+                                SilentModeHelper.scheduleSilentAlarms(context)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryGreen)
+                        )
+                    }
+
+                    if (isManualEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Divider(color = Color(0xFFF3F4F6))
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Start Time Picker Button
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("সাইলেন্ট শুরুর সময়", fontSize = 12.sp, color = TextGray, fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        val timePickerDialog = android.app.TimePickerDialog(
+                                            context,
+                                            { _, hour, minute ->
+                                                manualStartHour = hour
+                                                manualStartMinute = minute
+                                                prefs.edit()
+                                                    .putInt("manual_silent_start_hour", hour)
+                                                    .putInt("manual_silent_start_minute", minute)
+                                                    .apply()
+                                                SilentModeHelper.scheduleSilentAlarms(context)
+                                            },
+                                            manualStartHour,
+                                            manualStartMinute,
+                                            false
+                                        )
+                                        timePickerDialog.show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF3F4F6)),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(44.dp)
+                                ) {
+                                    val formattedTime = formatTime(manualStartHour, manualStartMinute)
+                                    Text(formattedTime, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDark)
+                                }
+                            }
+
+                            // End Time Picker Button
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("সাইলেন্ট শেষের সময়", fontSize = 12.sp, color = TextGray, fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        val timePickerDialog = android.app.TimePickerDialog(
+                                            context,
+                                            { _, hour, minute ->
+                                                manualEndHour = hour
+                                                manualEndMinute = minute
+                                                prefs.edit()
+                                                    .putInt("manual_silent_end_hour", hour)
+                                                    .putInt("manual_silent_end_minute", minute)
+                                                    .apply()
+                                                SilentModeHelper.scheduleSilentAlarms(context)
+                                            },
+                                            manualEndHour,
+                                            manualEndMinute,
+                                            false
+                                        )
+                                        timePickerDialog.show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF3F4F6)),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(44.dp)
+                                ) {
+                                    val formattedTime = formatTime(manualEndHour, manualEndMinute)
+                                    Text(formattedTime, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDark)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -308,4 +453,18 @@ fun PermissionRequiredCard(onRequest: () -> Unit) {
             }
         }
     }
+}
+
+private fun formatTime(hour: Int, minute: Int): String {
+    val isPm = hour >= 12
+    val displayHour = when {
+        hour == 0 -> 12
+        hour > 12 -> hour - 12
+        else -> hour
+    }
+    val minStr = String.format("%02d", minute)
+    val period = if (isPm) "PM" else "AM"
+    
+    // Convert to Bengali digits
+    return "${displayHour.toString().toBengali()}:${minStr.toBengali()} $period"
 }

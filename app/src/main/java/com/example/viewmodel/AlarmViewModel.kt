@@ -78,6 +78,7 @@ class AlarmViewModel(private val context: Context) : ViewModel() {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("ALARM_ID", alarm.id)
             putExtra("ALARM_LABEL", alarm.label)
+            putExtra("RINGTONE_URI", alarm.ringtoneUri)
             putExtra("IS_USER_ALARM", true)
         }
 
@@ -88,18 +89,44 @@ class AlarmViewModel(private val context: Context) : ViewModel() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                calendar.timeInMillis,
-                pendingIntent
-            )
+        // Show Full Screen Intent Notification
+        val activityIntent = Intent(context, com.example.AlarmActivity::class.java).apply {
+            putExtra("ALARM_ID", alarm.id)
+            putExtra("ALARM_LABEL", alarm.label)
+            putExtra("RINGTONE_URI", alarm.ringtoneUri)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            alarm.id + 2000,
+            activityIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val alarmInfo = AlarmManager.AlarmClockInfo(calendar.timeInMillis, fullScreenPendingIntent)
+            alarmManager.setAlarmClock(alarmInfo, pendingIntent)
         } else {
-            alarmManager.setExact(
-                AlarmManager.RTC_WAKEUP,
-                calendar.timeInMillis,
-                pendingIntent
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    calendar.timeInMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    calendar.timeInMillis,
+                    pendingIntent
+                )
+            }
+        }
+    }
+
+    fun rescheduleAllAlarms() {
+        viewModelScope.launch {
+            val allAlarms = alarmDao.getAllAlarmsDirect()
+            allAlarms.filter { it.isEnabled }.forEach { scheduleAlarm(it) }
         }
     }
 

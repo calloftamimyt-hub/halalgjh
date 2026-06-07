@@ -1,5 +1,8 @@
 package com.example
 
+import android.app.Activity
+import android.content.Intent
+import android.media.RingtoneManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -42,7 +46,22 @@ fun AddAlarmScreen(
     
     var deleteAfterRinging by remember { mutableStateOf(false) }
     var alarmSound by remember { mutableStateOf("Default") }
+    var selectedRingtoneUri by remember { mutableStateOf("") }
     var label by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+    val ringtonePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val uri = result.data?.getParcelableExtra<android.net.Uri>(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            if (uri != null) {
+                selectedRingtoneUri = uri.toString()
+                val ringtone = android.media.RingtoneManager.getRingtone(context, uri)
+                alarmSound = ringtone.getTitle(context)
+            }
+        }
+    }
     var snooze by remember { mutableStateOf("10 min, 3 times") }
     var vibrate by remember { mutableStateOf(true) }
 
@@ -66,6 +85,7 @@ fun AddAlarmScreen(
                                 days = daysString,
                                 deleteAfterRinging = deleteAfterRinging,
                                 sound = alarmSound,
+                                ringtoneUri = selectedRingtoneUri,
                                 label = label.ifEmpty { "Alarm" },
                                 snooze = snooze,
                                 vibrate = vibrate
@@ -184,7 +204,16 @@ fun AddAlarmScreen(
                     AlarmSettingItem(
                         label = "Alarm Sound",
                         value = alarmSound,
-                        onClick = { /* Sound dialog */ }
+                        onClick = { 
+                            val intent = android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_ALARM)
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Sound")
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, if (selectedRingtoneUri.isNotEmpty()) android.net.Uri.parse(selectedRingtoneUri) else null as android.net.Uri?)
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                            }
+                            ringtonePickerLauncher.launch(intent)
+                        }
                     )
                     Divider(modifier = Modifier.padding(horizontal = 16.dp), color = BgLight, thickness = 1.dp)
                     AlarmSettingItem(

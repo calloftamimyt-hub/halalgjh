@@ -51,6 +51,23 @@ object SilentModeHelper {
                 cancelAlarm(context, alarmManager, name, false)
             }
         }
+
+        val manualEnabled = prefs.getBoolean("manual_silent_enabled", false)
+        if (manualEnabled) {
+            val startHour = prefs.getInt("manual_silent_start_hour", 22)
+            val startMinute = prefs.getInt("manual_silent_start_minute", 0)
+            val endHour = prefs.getInt("manual_silent_end_hour", 6)
+            val endMinute = prefs.getInt("manual_silent_end_minute", 0)
+
+            val startPrayerHour = startHour.toDouble() + (startMinute.toDouble() / 60.0)
+            val endPrayerHour = endHour.toDouble() + (endMinute.toDouble() / 60.0)
+
+            scheduleAlarm(context, alarmManager, "Manual", startPrayerHour, 0, true)
+            scheduleAlarm(context, alarmManager, "Manual", endPrayerHour, 0, false)
+        } else {
+            cancelAlarm(context, alarmManager, "Manual", true)
+            cancelAlarm(context, alarmManager, "Manual", false)
+        }
     }
 
     private fun scheduleAlarm(context: Context, alarmManager: AlarmManager, prayerName: String, prayerHour: Double, offsetMinutes: Int, isOn: Boolean) {
@@ -105,7 +122,7 @@ object SilentModeHelper {
 
     private fun cancelAllAlarms(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        listOf("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha").forEach { name ->
+        listOf("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha", "Manual").forEach { name ->
             cancelAlarm(context, alarmManager, name, true)
             cancelAlarm(context, alarmManager, name, false)
         }

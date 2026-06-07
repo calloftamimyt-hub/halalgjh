@@ -2,6 +2,7 @@ package com.example
 
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.Intent
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
@@ -29,6 +30,8 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.PrimaryGreen
 import java.util.*
 
+import com.example.receiver.AlarmService
+
 class AlarmActivity : ComponentActivity() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
@@ -40,8 +43,13 @@ class AlarmActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         val label = intent.getStringExtra("ALARM_LABEL") ?: "Alarm"
+        val ringtoneUri = intent.getStringExtra("RINGTONE_URI") ?: ""
+        val alarmId = intent.getIntExtra("ALARM_ID", -1)
+        val fromService = intent.getBooleanExtra("FROM_SERVICE", false)
         
-        startAlarm()
+        if (!fromService) {
+            startAlarm(ringtoneUri)
+        }
 
         setContent {
             MyApplicationTheme {
@@ -67,13 +75,19 @@ class AlarmActivity : ComponentActivity() {
                         
                         Spacer(modifier = Modifier.height(48.dp))
                         
+                        val calendar = remember { Calendar.getInstance() }
                         Text(
-                            text = Calendar.getInstance().let { 
-                                String.format("%02d:%02d", it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE))
-                            },
+                            text = String.format("%02d:%02d", calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE)),
                             fontSize = 64.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
+                        )
+                        
+                        // Current Date in Bangla
+                        Text(
+                            text = java.text.SimpleDateFormat("EEEE, d MMMM", Locale("bn")).format(Date()),
+                            fontSize = 18.sp,
+                            color = Color.White.copy(alpha = 0.5f)
                         )
                         
                         Spacer(modifier = Modifier.height(16.dp))
@@ -81,21 +95,34 @@ class AlarmActivity : ComponentActivity() {
                         Text(
                             text = label,
                             fontSize = 24.sp,
-                            color = Color.White.copy(alpha = 0.7f)
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontWeight = FontWeight.SemiBold
                         )
                         
                         Spacer(modifier = Modifier.height(100.dp))
                         
-                        Button(
-                            onClick = {
-                                stopAlarm()
-                                finish()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                            shape = CircleShape,
-                            modifier = Modifier.size(100.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Text("STOP", fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = {
+                                    val stopServiceIntent = Intent(this@AlarmActivity, AlarmService::class.java)
+                                    stopServiceIntent.action = "STOP_ALARM"
+                                    stopService(stopServiceIntent)
+                                    
+                                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                                    notificationManager.cancel(alarmId + 3000)
+                                    notificationManager.cancel(alarmId + 4000)
+                                    stopAlarm()
+                                    finish()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                shape = CircleShape,
+                                modifier = Modifier.size(100.dp)
+                            ) {
+                                Text("STOP", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -103,13 +130,35 @@ class AlarmActivity : ComponentActivity() {
         }
     }
 
-    private fun startAlarm() {
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+    private fun startAlarm(ringtoneUri: String) {
+        val alarmUri = if (ringtoneUri.isNotEmpty()) {
+            android.net.Uri.parse(ringtoneUri)
+        } else {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        }
             
-        mediaPlayer = MediaPlayer.create(this, alarmUri).apply {
-            isLooping = true
-            start()
+        try {
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(this@AlarmActivity, alarmUri!!)
+                setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                isLooping = true
+                prepare()
+                start()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Fallback to default
+            val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            mediaPlayer = MediaPlayer.create(this, defaultUri).apply {
+                isLooping = true
+                start()
+            }
         }
         
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

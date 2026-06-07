@@ -114,6 +114,7 @@ data class UserAlarm(
     val days: String, // comma separated days e.g. "Mon,Tue" or "Once"
     val deleteAfterRinging: Boolean = false,
     val sound: String = "Default",
+    val ringtoneUri: String = "",
     val label: String = "",
     val snooze: String = "10 min, 3 times",
     val vibrate: Boolean = true,
@@ -124,6 +125,9 @@ data class UserAlarm(
 interface UserAlarmDao {
     @Query("SELECT * FROM user_alarms ORDER BY hour ASC, minute ASC")
     fun getAllAlarms(): Flow<List<UserAlarm>>
+
+    @Query("SELECT * FROM user_alarms")
+    suspend fun getAllAlarmsDirect(): List<UserAlarm>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAlarm(alarm: UserAlarm): Long

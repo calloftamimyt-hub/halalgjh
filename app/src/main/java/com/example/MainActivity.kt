@@ -112,6 +112,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Notification Action Permissions for Android 13+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val notificationPermissionState = rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
+                    LaunchedEffect(Unit) {
+                        if (notificationPermissionState.status is PermissionStatus.Denied) {
+                            notificationPermissionState.launchPermissionRequest()
+                        }
+                    }
+                }
+                
+                // Exact Alarm check for Android 12+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val alarmManager = context.getSystemService(android.app.AlarmManager::class.java)
+                    if (!alarmManager.canScheduleExactAlarms()) {
+                        LaunchedEffect(Unit) {
+                            val intent = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = android.net.Uri.parse("package:${context.packageName}")
+                            }
+                            context.startActivity(intent)
+                        }
+                    }
+                }
+
                 CompositionLocalProvider(com.example.ui.LocalAppStrings provides strings) {
                     LaunchedEffect(isSocialBlockedState.value, context) {
                         if (isSocialBlockedState.value && SocialBlockerService.isPermissionGranted(context)) {
@@ -172,12 +195,34 @@ class MainActivity : ComponentActivity() {
                                                             val remoteId = doc.document.id
                                                             if (notificationDao.countByRemoteId(remoteId) == 0) {
                                                                 val data = doc.document.data
+                                                                val type = data["type"] as? String ?: "GENERAL"
+                                                                val isEnglish = GlobalLanguage.isEnglish
+                                                                
+                                                                var title = data["title"] as? String ?: "Notification"
+                                                                var body = data["body"] as? String ?: ""
+                                                                
+                                                                // Localize specific video status update notifications from Admin
+                                                                when (type) {
+                                                                    "APPROVE", "APPROVED" -> {
+                                                                        title = if (isEnglish) "Video Approved" else "ভিডিও অ্যাপ্রুভ হয়েছে"
+                                                                        body = if (isEnglish) "Your video has been approved." else "আপনার ভিডিওটি এডমিন কর্তৃক অ্যাপ্রুভ করা হয়েছে।"
+                                                                    }
+                                                                    "REJECT", "REJECTED" -> {
+                                                                        title = if (isEnglish) "Video Rejected" else "ভিডিও রিজেক্ট হয়েছে"
+                                                                        body = if (isEnglish) "Your video submission was not approved." else "আপনার ভিডিওটি এডমিন কর্তৃক রিজেক্ট করা হয়েছে।"
+                                                                    }
+                                                                    "DELETE", "DELETED" -> {
+                                                                        title = if (isEnglish) "Video Deleted" else "ভিডিও মুছে ফেলা হয়েছে"
+                                                                        body = if (isEnglish) "A video was deleted by the admin." else "আপনার ভিডিওটি এডমিন কর্তৃক ডিলেট করা হয়েছে।"
+                                                                    }
+                                                                }
+
                                                                 val entity = com.example.database.NotificationEntity(
-                                                                    title = data["title"] as? String ?: "Notification",
-                                                                    body = data["body"] as? String ?: "",
+                                                                    title = title,
+                                                                    body = body,
                                                                     timestamp = data["timestamp"] as? Long ?: System.currentTimeMillis(),
-                                                                    type = data["type"] as? String ?: "GENERAL",
-                                                                    actorName = data["actorName"] as? String ?: "Someone",
+                                                                    type = type,
+                                                                    actorName = data["actorName"] as? String ?: "System",
                                                                     remoteId = remoteId
                                                                 )
                                                                 notificationDao.insertNotification(entity)
@@ -222,7 +267,18 @@ class MainActivity : ComponentActivity() {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                 list.add(Manifest.permission.POST_NOTIFICATIONS)
                             }
+                            // Access to set exact alarms is usually handled separately via Intent if not granted
                             list
+                        }
+
+                        LaunchedEffect(Unit) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE) as android.app.AlarmManager
+                                if (!alarmManager.canScheduleExactAlarms()) {
+                                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                                    context.startActivity(intent)
+                                }
+                            }
                         }
 
                         val multiplePermissionsState = rememberMultiplePermissionsState(permissions)
@@ -239,6 +295,7 @@ class MainActivity : ComponentActivity() {
                         var isQiblaPageOpen by remember { mutableStateOf(false) }
                         var isNotificationsPageOpen by remember { mutableStateOf(false) }
                         var isAddAlarmPageOpen by remember { mutableStateOf(false) }
+                        var isParentalPageOpen by remember { mutableStateOf(false) }
                         
                         val alarmViewModel: com.example.viewmodel.AlarmViewModel = remember { 
                             com.example.viewmodel.AlarmViewModel(context) 
@@ -266,7 +323,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         val view = LocalView.current
-                        val isProfileOverlayOpen = selectedCreatorUid != null || isSavedPostsOpen || isFriendsPageOpen || isAlarmPageOpen || isZakatPageOpen || isCalendarPageOpen || isQiblaPageOpen || isNotificationsPageOpen || isAddAlarmPageOpen
+                        val isProfileOverlayOpen = selectedCreatorUid != null || isSavedPostsOpen || isFriendsPageOpen || isAlarmPageOpen || isZakatPageOpen || isCalendarPageOpen || isQiblaPageOpen || isNotificationsPageOpen || isAddAlarmPageOpen || isParentalPageOpen
                         val isDarkStatusBar = (selectedTab == "create") && !isProfileOverlayOpen && FirebaseAuth.getInstance().currentUser != null
                         val isAuthPage = (selectedTab == "create") && FirebaseAuth.getInstance().currentUser == null
                         
@@ -305,7 +362,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .then(
-                                        if (isDarkStatusBar || isProfileOverlayOpen) {
+                                        if (isDarkStatusBar || isProfileOverlayOpen || selectedTab == "video") {
                                             Modifier.padding(bottom = innerPadding.calculateBottomPadding())
                                         } else {
                                             Modifier.padding(innerPadding)
@@ -384,7 +441,8 @@ class MainActivity : ComponentActivity() {
                                         ProfileScreen(
                                             onNavigateToTracker = { selectedTab = "tracker" },
                                             onNavigateToSettings = { selectedTab = "settings" },
-                                            onNavigateToSaved = { isSavedPostsOpen = true }
+                                            onNavigateToSaved = { isSavedPostsOpen = true },
+                                            onNavigateToParentalControl = { isParentalPageOpen = true }
                                         )
                                     } else if (selectedTab == "settings") {
                                         SettingsScreen(
@@ -424,7 +482,32 @@ class MainActivity : ComponentActivity() {
                                 }
 
                                 if (isFriendsPageOpen) {
-                                    FriendsScreen(onBack = { isFriendsPageOpen = false })
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = isFriendsPageOpen,
+                                        enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
+                                        exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut()
+                                    ) {
+                                        FriendsScreen(
+                                            onBack = { isFriendsPageOpen = false },
+                                            onNavigateToCreatorProfile = { uid, name ->
+                                                selectedCreatorUid = uid
+                                                selectedCreatorName = name
+                                                isFriendsPageOpen = false
+                                            }
+                                        )
+                                    }
+                                }
+
+                                if (isParentalPageOpen) {
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = isParentalPageOpen,
+                                        enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
+                                        exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut()
+                                    ) {
+                                        ParentalControlScreen(
+                                            onBack = { isParentalPageOpen = false }
+                                        )
+                                    }
                                 }
                                 
                                 if (isSavedPostsOpen) {
@@ -493,14 +576,6 @@ fun GlassStatusBarHeader() {
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsTopHeight(WindowInsets.statusBars)
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.9f),
-                        Color.Transparent
-                    )
-                )
-            )
     )
 }
 
@@ -642,9 +717,9 @@ fun AppBottomNavigation(selectedTab: String, isDark: Boolean, onTabSelected: (St
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(CircleShape)
                         .then(
-                            if (selectedTab == "profile") Modifier.border(2.dp, PrimaryGreen, RoundedCornerShape(10.dp)) else Modifier
+                            if (selectedTab == "profile") Modifier.border(2.dp, PrimaryGreen, CircleShape) else Modifier
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -680,6 +755,8 @@ fun HomeScreen(
     onNavigateToQibla: () -> Unit,
     onOpenNotificationsPage: () -> Unit
 ) {
+    var isPrayerExpanded by remember { mutableStateOf(false) }
+    
     if (state.isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = PrimaryGreen)
@@ -831,9 +908,32 @@ fun HomeScreen(
                     Quad("Maghrib", if (GlobalLanguage.isEnglish) "Maghrib" else "মাগরিব", times.maghrib, times.isha),
                     Quad("Isha", if (GlobalLanguage.isEnglish) "Isha" else "এশা", times.isha, times.fajr)
                 )
+
+                val displayPrayers = if (isPrayerExpanded) {
+                    prayers
+                } else {
+                    val currentIndex = prayers.indexOfFirst { it.id == state.currentPrayerName }
+                    if (currentIndex != -1) {
+                        listOf(
+                            prayers[currentIndex],
+                            prayers[(currentIndex + 1) % prayers.size]
+                        )
+                    } else {
+                        // Fallback if none active (e.g. current is Duha)
+                        val nextIdx = prayers.indexOfFirst { it.id == state.nextPrayerName }
+                        if (nextIdx != -1) {
+                            listOf(
+                                prayers[nextIdx],
+                                prayers[(nextIdx + 1) % prayers.size]
+                            )
+                        } else {
+                            prayers.take(2)
+                        }
+                    }
+                }
                 
                 Column {
-                    prayers.forEachIndexed { index, p ->
+                    displayPrayers.forEachIndexed { index, p ->
                         PrayerRow(
                             p.name, 
                             p.startTime, 
@@ -843,8 +943,37 @@ fun HomeScreen(
                             onToggleAlarm = { onToggleAlarm(p.id) },
                             onOpenAlarmPage = onOpenAlarmPage
                         )
-                        if (index < prayers.size - 1) {
+                        if (index < displayPrayers.size - 1) {
                             HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 4.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // See All / Show Less Button
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(PrimaryGreen.copy(alpha = 0.05f))
+                            .clickable { isPrayerExpanded = !isPrayerExpanded },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (isPrayerExpanded) LocalAppStrings.current.collapse else LocalAppStrings.current.see_all,
+                                color = PrimaryGreen,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                if (isPrayerExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = PrimaryGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
@@ -919,8 +1048,19 @@ fun NaflSalatSection(state: com.example.viewmodel.ViewState) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(if (GlobalLanguage.isEnglish) "Nafl Salat Times" else "নফল সালাতের সময়", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextDark)
-            Text(if (GlobalLanguage.isEnglish) "See Reference" else "রেফারেন্স দেখুন", color = PrimaryGreen, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(
+                if (GlobalLanguage.isEnglish) "Nafl Salat Times" else "নফল সালাতের সময়", 
+                fontWeight = FontWeight.Bold, 
+                fontSize = 18.sp, 
+                color = TextDark,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                if (GlobalLanguage.isEnglish) "Reference" else "রেফারেন্স", 
+                color = PrimaryGreen, 
+                fontSize = 13.sp, 
+                fontWeight = FontWeight.Medium
+            )
         }
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -929,14 +1069,14 @@ fun NaflSalatSection(state: com.example.viewmodel.ViewState) {
              val sunriseHours = times.sunriseHours
              val dhuhrHours = times.dhuhrHours
              val chashtHours = sunriseHours + 15.0 / 60.0
-             val duhaHours = (chashtHours + dhuhrHours) / 2.0
              
              // Helper for formatting
              val formatTime = { h: Double ->
                 val totalMin = (h * 60).toInt()
                 val hour = (totalMin / 60) % 24
                 val min = totalMin % 60
-                val p = if (hour >= 12) "পিএম" else "এএম"
+                val isEng = GlobalLanguage.isEnglish
+                val p = if (hour >= 12) (if(isEng) "PM" else "পিএম") else (if(isEng) "AM" else "এএম")
                 val displayHour = if (hour > 12) hour - 12 else if (hour == 0) 12 else hour
                 String.format("%02d:%02d %s", displayHour, min, p).toBengali()
              }
@@ -944,14 +1084,15 @@ fun NaflSalatSection(state: com.example.viewmodel.ViewState) {
              val formatTimeRange = { start: Double, end: Double ->
                 val s = formatTime(start).replace(" এএম", "").replace(" পিএম", "").replace(" AM", "").replace(" PM", "")
                 val e = formatTime(end)
-                "$s - $e".toBengali()
+                "$s - $e"
              }
 
              // Duha
              NaflSalatRow(
                 icon = Icons.Outlined.WbSunny,
-                name = if (GlobalLanguage.isEnglish) "Duha" else "দুহা",
-                time = "${if (GlobalLanguage.isEnglish) "Morning" else "সকাল"} ${formatTimeRange(chashtHours, dhuhrHours - 5.0/60.0)}"
+                name = if (GlobalLanguage.isEnglish) "Duha / Chasht" else "দুহা / চাশত",
+                time = formatTimeRange(chashtHours, dhuhrHours - 5.0/60.0),
+                label = if (GlobalLanguage.isEnglish) "Morning" else "সকাল"
              )
              
              HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
@@ -960,7 +1101,8 @@ fun NaflSalatSection(state: com.example.viewmodel.ViewState) {
              NaflSalatRow(
                 icon = Icons.Outlined.LocationOn,
                 name = if (GlobalLanguage.isEnglish) "Zawal Start" else "যাওয়াল শুরু",
-                time = "${if (GlobalLanguage.isEnglish) "Noon" else "দুপুর"} ${formatTime(dhuhrHours)}"
+                time = formatTime(dhuhrHours),
+                label = if (GlobalLanguage.isEnglish) "Noon" else "দুপুর"
              )
 
              HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
@@ -969,7 +1111,8 @@ fun NaflSalatSection(state: com.example.viewmodel.ViewState) {
              NaflSalatRow(
                 icon = Icons.Outlined.WbTwilight,
                 name = if (GlobalLanguage.isEnglish) "Awwabin" else "আওয়াবিন",
-                time = "${if (GlobalLanguage.isEnglish) "After Maghrib" else "মাগরিবের পর"} - ${if (GlobalLanguage.isEnglish) "Evening" else "সন্ধ্যা"} ${times.maghrib.toBengali()}"
+                time = times.maghrib.toBengali(),
+                label = if (GlobalLanguage.isEnglish) "After Maghrib" else "মাগরিবের পর"
              )
 
              HorizontalDivider(color = BgLight, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 12.dp))
@@ -978,28 +1121,32 @@ fun NaflSalatSection(state: com.example.viewmodel.ViewState) {
              NaflSalatRow(
                 icon = Icons.Outlined.DarkMode,
                 name = if (GlobalLanguage.isEnglish) "Tahajjud" else "তাহাজ্জুদ",
-                time = "${if (GlobalLanguage.isEnglish) "After Isha" else "ইশার পর"} - ${if (GlobalLanguage.isEnglish) "Night" else "রাত"} ${times.fajr.toBengali()}",
-                subtitle = if (GlobalLanguage.isEnglish) "Last 1/3 of Night starts: " + formatTime(times.fajrHours - 3.0) 
-                           else "রাতের শেষ ১/৩ শুরু: রাত ${formatTime(times.fajrHours - 3.0)}"
+                time = times.fajr.toBengali(),
+                label = if (GlobalLanguage.isEnglish) "Last 1/3 of Night" else "রাতের শেষ ১/৩ হেসসা",
+                subtitle = if (GlobalLanguage.isEnglish) "Starts: " + formatTime(times.fajrHours - 3.0) 
+                           else "শুরু: রাত ${formatTime(times.fajrHours - 3.0)}"
              )
         }
     }
 }
 
 @Composable
-fun NaflSalatRow(icon: ImageVector, name: String, time: String, subtitle: String? = null) {
+fun NaflSalatRow(icon: ImageVector, name: String, time: String, label: String, subtitle: String? = null) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = TextDark, modifier = Modifier.size(24.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            Icon(icon, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.width(16.dp))
-            Text(name, color = TextDark, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Column {
+                Text(name, color = TextDark, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(label, color = TextGray, fontSize = 12.sp)
+            }
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(time, color = TextDark, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(time, color = TextDark, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
             if (subtitle != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(6.dp).background(PrimaryGreen, CircleShape))
@@ -1062,7 +1209,7 @@ fun PrayerRow(
 ) {
     val cleanStart = startTime.replace(" এএম", "").replace(" পিএম", "").replace(" AM", "").replace(" PM", "").toBengali()
     val cleanEnd = endTime.replace(" এএম", "").replace(" পিএম", "").replace(" AM", "").replace(" PM", "").toBengali()
-    val endSuffix = if (endTime.contains("পিএম") || endTime.contains("PM")) " পিএম" else " এএম"
+    val endSuffix = if (endTime.contains("পিএম") || endTime.contains("PM")) (if(GlobalLanguage.isEnglish) " PM" else " পিএম") else (if(GlobalLanguage.isEnglish) " AM" else " এএম")
     
     // For night time range like Isha to Fajr
     val timeDisplay = if (name == "এশা" || name == "Isha") {
@@ -1074,44 +1221,51 @@ fun PrayerRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 1.dp)
-            .background(if(isActive) PrimaryGreen.copy(alpha=0.08f) else Color.Transparent, RoundedCornerShape(12.dp))
+            .padding(vertical = 2.dp)
+            .background(
+                if(isActive) PrimaryGreen.copy(alpha=0.12f) else Color.Transparent, 
+                RoundedCornerShape(12.dp)
+            )
+            .then(
+                if(isActive) Modifier.border(1.dp, PrimaryGreen.copy(alpha=0.3f), RoundedCornerShape(12.dp)) else Modifier
+            )
             .clickable { onOpenAlarmPage() }
-            .padding(horizontal=12.dp, vertical=4.dp),
+            .padding(horizontal=12.dp, vertical=8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .background(if(isActive) PrimaryGreen.copy(alpha=0.12f) else BgLight.copy(alpha=0.5f), CircleShape),
+                    .size(36.dp)
+                    .background(if(isActive) PrimaryGreen else BgLight.copy(alpha=0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     if (name == "এশা" || name == "মাগরিব" || name=="ফজর" || name == "Isha" || name == "Maghrib" || name == "Fajr") 
                         Icons.Outlined.DarkMode else Icons.Outlined.LightMode, 
                     contentDescription = null, 
-                    tint = if(isActive) PrimaryGreen else TextGray, 
-                    modifier = Modifier.size(16.dp)
+                    tint = if(isActive) Color.White else TextGray, 
+                    modifier = Modifier.size(18.dp)
                 )
             }
             Spacer(modifier = Modifier.width(16.dp))
             Text(
                 name, 
-                color = TextDark, 
-                fontSize = 18.sp, 
-                fontWeight=if(isActive) FontWeight.Bold else FontWeight.Medium
+                color = if(isActive) PrimaryGreen else TextDark, 
+                fontSize = 17.sp, 
+                fontWeight=if(isActive) FontWeight.ExtraBold else FontWeight.Bold,
+                modifier = Modifier.weight(1f)
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 timeDisplay, 
-                color = TextDark, 
-                fontSize = 17.sp, 
-                fontWeight=if(isActive) FontWeight.Bold else FontWeight.SemiBold
+                color = if(isActive) PrimaryGreen else TextDark, 
+                fontSize = 16.sp, 
+                fontWeight=if(isActive) FontWeight.ExtraBold else FontWeight.Bold
             )
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             IconButton(onClick = onToggleAlarm, modifier = Modifier.size(24.dp)) {
                  Icon(
                      if (isAlarmOn) Icons.Default.NotificationsActive else Icons.Outlined.Notifications,
